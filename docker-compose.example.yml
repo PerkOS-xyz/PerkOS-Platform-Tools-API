@@ -1,0 +1,45 @@
+# PerkOS Platform Tools API — production compose for the LLM VPS.
+#
+# Lives alongside perkos-assistant + perkos-assistant-bridge on the
+# same VPS. The bridge → tools-api hop stays on the local docker
+# network so the JWT never traverses public internet.
+
+services:
+  perkos-platform-tools-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: perkos-platform-tools-api:local
+    container_name: perkos-platform-tools-api
+    restart: unless-stopped
+    # No public port — the bridge calls us on the local docker network
+    # via the compose service DNS name (`perkos-platform-tools-api:8080`).
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Firebase Admin SDK — same Firebase project as the miniapp.
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+
+      # JWT — shared secret with the perkos-a2a-bridge container.
+      # Rotate per SECRETS.md (90-day schedule).
+      JWT_SHARED_SECRET: ${JWT_SHARED_SECRET}
+      JWT_MAX_AGE_SECONDS: ${JWT_MAX_AGE_SECONDS:-60}
+
+      # Rate limits.
+      RATE_LIMIT_READ_PER_MIN: ${RATE_LIMIT_READ_PER_MIN:-60}
+      RATE_LIMIT_ACTION_PER_MIN: ${RATE_LIMIT_ACTION_PER_MIN:-10}
+
+      # Audit toggle (production should always be true).
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

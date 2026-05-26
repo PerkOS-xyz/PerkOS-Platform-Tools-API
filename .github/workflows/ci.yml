@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Required by config.ts even during typecheck/test (they parse env at import).
+  FIREBASE_PROJECT_ID: ci-fake
+  FIREBASE_CLIENT_EMAIL: ci@example.com
+  FIREBASE_PRIVATE_KEY: "fake"
+  JWT_SHARED_SECRET: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+
+  image-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: perkos-platform-tools-api:ci
+      - name: Boot smoke
+        run: |
+          docker run -d --name api \
+            -e FIREBASE_PROJECT_ID=ci-fake \
+            -e FIREBASE_CLIENT_EMAIL=ci@example.com \
+            -e FIREBASE_PRIVATE_KEY=fake \
+            -e JWT_SHARED_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            -e AUDIT_ENABLED=false \
+            -p 8080:8080 \
+            perkos-platform-tools-api:ci
+          # Wait up to 20s for /health.
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+              echo "healthy after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/health
+          # Verify auth-gating works: /v1/tools without JWT → 401.
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v1/tools)
+          if [ "$code" != "401" ]; then
+            echo "expected 401 from unauth /v1/tools, got $code"
+            docker logs api
+            exit 1
+          fi
+          echo "auth gate verified (401 as expected)"
+          docker stop api

@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "plugins": [
+    {
+      "id": "web-search",
+      "label": "Web search",
+      "description": "Lets the agent search the public web. Backed by a managed search API (PerkOS pays).",
+      "requiredEnv": [],
+      "examples": ["Search the news for the latest Base chain governance proposal."]
+    },
+    {
+      "id": "code-runner",
+      "label": "Code runner",
+      "description": "Sandboxed Python / Node execution. Runs in an ephemeral container per call; no persistent fs.",
+      "requiredEnv": [],
+      "examples": ["Run this Python snippet and tell me the output."]
+    },
+    {
+      "id": "vector-memory",
+      "label": "Vector memory",
+      "description": "Long-term recall via pgvector. Agent embeds and retrieves past notes / docs.",
+      "requiredEnv": [],
+      "examples": ["Remember that I prefer concise replies.", "What did we discuss last week about the launch?"]
+    },
+    {
+      "id": "github",
+      "label": "GitHub integration",
+      "description": "Read PRs, issues, reviews. Write comments + reviews when allowed.",
+      "requiredEnv": ["GITHUB_TOKEN"],
+      "examples": ["Summarize the open PRs on PerkOS-xyz/PerkOS."]
+    },
+    {
+      "id": "notion",
+      "label": "Notion sync",
+      "description": "Read and write to Notion workspaces. Per-database access scopes.",
+      "requiredEnv": ["NOTION_API_KEY"],
+      "examples": ["Drop today's standup notes into the Engineering page."]
+    },
+    {
+      "id": "calendar",
+      "label": "Calendar",
+      "description": "Schedule and inspect calendar events. Google + Apple supported.",
+      "requiredEnv": ["GOOGLE_OAUTH_TOKEN"],
+      "examples": ["What's on my calendar tomorrow?", "Book 30min with Julio next week."]
+    },
+    {
+      "id": "drive",
+      "label": "Google Drive",
+      "description": "Search, read, and update Drive files.",
+      "requiredEnv": ["GOOGLE_OAUTH_TOKEN"],
+      "examples": ["Find the latest pitch deck.", "Update the roadmap doc with Q3 milestones."]
+    },
+    {
+      "id": "browser",
+      "label": "Headless browser",
+      "description": "Navigate sites and capture content. Useful for sites without an API.",
+      "requiredEnv": [],
+      "examples": ["Pull the pricing table from competitor.com."]
+    }
+  ]
+}
