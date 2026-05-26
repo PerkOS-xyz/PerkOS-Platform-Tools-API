@@ -59,6 +59,11 @@ const schema = z.object({
   RUNBOOK_DIR: z.string().default("/opt/perkos-runbook"),
   // Static plugin catalog json.
   PLUGIN_CATALOG_PATH: z.string().default("/opt/perkos-plugins/catalog.json"),
+
+  // --- Metrics ---
+  // Bearer token gating /metrics. When unset, /metrics returns 503 —
+  // never anonymous. Generate with `openssl rand -hex 32`.
+  PERKOS_METRICS_TOKEN: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

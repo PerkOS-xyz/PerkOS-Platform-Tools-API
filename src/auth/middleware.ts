@@ -10,6 +10,7 @@
 
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { getMetrics } from "../metrics.js";
 import { verifyToken, type TokenClaims } from "./jwt.js";
 
 declare module "fastify" {
@@ -25,6 +26,7 @@ export async function authMiddleware(
 ): Promise<void> {
   const header = request.headers.authorization;
   if (typeof header !== "string" || !header.startsWith("Bearer ")) {
+    getMetrics().authFailures.inc({ reason: "missing-or-malformed-header" });
     await reply.code(401).send({
       error: "Missing or malformed Authorization header.",
     });
@@ -34,6 +36,7 @@ export async function authMiddleware(
   const result = verifyToken(token);
   if (!result.ok) {
     request.log.warn({ reason: result.reason }, "jwt verify failed");
+    getMetrics().authFailures.inc({ reason: result.reason });
     await reply.code(401).send({ error: `Auth failed: ${result.reason}` });
     return;
   }

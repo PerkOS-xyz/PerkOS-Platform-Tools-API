@@ -12,6 +12,7 @@ import Fastify from "fastify";
 
 import { config } from "./config.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { registerMetricsRoute } from "./routes/metrics.js";
 import { registerV1Routes } from "./routes/v1.js";
 import { startReaper, stopReaper } from "./rate-limit.js";
 
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
 
   // Routes.
   await registerHealthRoutes(app);
+  await registerMetricsRoute(app);
   await registerV1Routes(app);
 
   // Cleanup on shutdown.
