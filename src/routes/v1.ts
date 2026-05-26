@@ -15,6 +15,7 @@ import type { FastifyInstance } from "fastify";
 
 import { audit, redactArgs } from "../audit.js";
 import { authMiddleware, requireAdmin } from "../auth/middleware.js";
+import { getMetrics } from "../metrics.js";
 import { check as rateCheck } from "../rate-limit.js";
 import { findTool, tools } from "../tools/index.js";
 
@@ -47,6 +48,15 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
     "/v1/tools/:name",
     async (req, reply) => {
       const start = Date.now();
+      const metrics = getMetrics();
+      const observe = (resultLabel: string) => {
+        metrics.requestTotal.inc({ tool: req.params.name, result: resultLabel });
+        metrics.requestDuration.observe(
+          { tool: req.params.name },
+          (Date.now() - start) / 1000,
+        );
+      };
+
       const ctx = req.ctx!;
       const name = req.params.name;
       const tool = findTool(name);
@@ -59,6 +69,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           argsRedacted: {},
           errorClass: "NOT_FOUND",
         });
+        observe("not-found");
         return reply
           .code(404)
           .send({ ok: false, errorClass: "NOT_FOUND", message: `Unknown tool "${name}"` });
@@ -67,7 +78,10 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
       // Admin tools require role=admin claim.
       if (tool.role === "admin") {
         await requireAdmin(req, reply);
-        if (reply.sent) return;
+        if (reply.sent) {
+          observe("unauthorized");
+          return;
+        }
       }
 
       // Rate limit (per-wallet, per-kind).
@@ -79,6 +93,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           argsRedacted: {},
           errorClass: "RATE_LIMITED" as never,
         });
+        observe("rate-limited");
         return reply.code(429).send({
           ok: false,
           errorClass: "RATE_LIMITED",
@@ -99,6 +114,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           argsRedacted: redactArgs(req.body),
           errorClass: "BAD_INPUT",
         });
+        observe("bad-input");
         return reply
           .code(400)
           .send({ ok: false, errorClass: "BAD_INPUT", message: issues });
@@ -114,6 +130,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           argsRedacted: redactArgs(parsed.data),
           errorClass: result.ok ? undefined : result.errorClass,
         });
+        observe(result.ok ? "success" : "tool-error");
         return reply
           .code(result.ok ? 200 : statusForError(result.errorClass))
           .send(result);
@@ -127,6 +144,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           argsRedacted: redactArgs(parsed.data),
           errorClass: "INTERNAL",
         });
+        observe("internal");
         return reply
           .code(500)
           .send({ ok: false, errorClass: "INTERNAL", message: msg });

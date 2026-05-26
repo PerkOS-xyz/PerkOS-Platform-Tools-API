@@ -18,6 +18,7 @@ import { FieldValue, type Firestore } from "firebase-admin/firestore";
 
 import { config } from "./config.js";
 import { db } from "./firestore.js";
+import { getMetrics } from "./metrics.js";
 import type { TokenClaims } from "./auth/jwt.js";
 
 export type AuditRecord = {
@@ -83,8 +84,12 @@ export function audit(
       argsRedacted: record.argsRedacted,
       errorClass: record.errorClass ?? null,
     })
+    .then(() => {
+      getMetrics().auditWrites.inc({ result: "success" });
+    })
     .catch((err: unknown) => {
       // Audit write failed — log but don't crash the request path.
+      getMetrics().auditWrites.inc({ result: "error" });
       // eslint-disable-next-line no-console
       console.error(
         `[audit] write failed for ${claims.wallet} ${record.tool}:`,
