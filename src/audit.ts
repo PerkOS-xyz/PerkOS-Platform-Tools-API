@@ -65,35 +65,67 @@ export function audit(
   if (!config.AUDIT_ENABLED) return;
 
   const ts = Date.now();
-  const ref = (firestore ?? db())
+  const db_ = firestore ?? db();
+  const docId = `${ts}-${claims.requestId}`;
+  const payload = {
+    ts: FieldValue.serverTimestamp(),
+    // Numeric mirror of `ts` — Firestore serverTimestamp isn't
+    // available client-side at write time, so admins paging
+    // ?before=<ms> need this. Identical to the docId prefix.
+    tsMs: ts,
+    requestId: claims.requestId,
+    wallet: claims.wallet,
+    convId: claims.convId,
+    role: claims.role,
+    tool: record.tool,
+    ok: record.ok,
+    latencyMs: record.latencyMs,
+    argsRedacted: record.argsRedacted,
+    errorClass: record.errorClass ?? null,
+  };
+
+  // Per-wallet write — primary record, used by per-wallet detail views.
+  const perWalletRef = db_
     .collection("audit_log")
     .doc("tool_calls")
     .collection(claims.wallet)
-    .doc(`${ts}-${claims.requestId}`);
+    .doc(docId);
 
-  ref
-    .set({
-      ts: FieldValue.serverTimestamp(),
-      requestId: claims.requestId,
-      wallet: claims.wallet,
-      convId: claims.convId,
-      role: claims.role,
-      tool: record.tool,
-      ok: record.ok,
-      latencyMs: record.latencyMs,
-      argsRedacted: record.argsRedacted,
-      errorClass: record.errorClass ?? null,
-    })
-    .then(() => {
-      getMetrics().auditWrites.inc({ result: "success" });
-    })
-    .catch((err: unknown) => {
-      // Audit write failed — log but don't crash the request path.
-      getMetrics().auditWrites.inc({ result: "error" });
-      // eslint-disable-next-line no-console
-      console.error(
-        `[audit] write failed for ${claims.wallet} ${record.tool}:`,
-        err instanceof Error ? err.message : String(err),
-      );
+  // Flat mirror — same payload, single collection so admins can
+  // orderBy("tsMs", "desc") across every wallet in one query. The
+  // collection is meant for the *recent* tail; a separate retention
+  // job trims it (out of scope for this PR — write everything; trim
+  // later via a Firestore TTL policy on the tsMs field).
+  const flatRef = db_.collection("audit_log_entries").doc(docId);
+
+  // Use Promise.allSettled so a failure on one doesn't drop the
+  // other — and we still bump the metric per-write rather than once.
+  void Promise.allSettled([perWalletRef.set(payload), flatRef.set(payload)])
+    .then(([perWallet, flat]) => {
+      const metrics = getMetrics();
+      if (perWallet.status === "fulfilled") {
+        metrics.auditWrites.inc({ result: "success" });
+      } else {
+        metrics.auditWrites.inc({ result: "error" });
+        // eslint-disable-next-line no-console
+        console.error(
+          `[audit] per-wallet write failed for ${claims.wallet} ${record.tool}:`,
+          perWallet.reason instanceof Error
+            ? perWallet.reason.message
+            : String(perWallet.reason),
+        );
+      }
+      if (flat.status === "fulfilled") {
+        metrics.auditWrites.inc({ result: "success" });
+      } else {
+        metrics.auditWrites.inc({ result: "error" });
+        // eslint-disable-next-line no-console
+        console.error(
+          `[audit] flat mirror write failed for ${claims.wallet} ${record.tool}:`,
+          flat.reason instanceof Error
+            ? flat.reason.message
+            : String(flat.reason),
+        );
+      }
     });
 }
