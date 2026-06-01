@@ -43,3 +43,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    # Join the proxy's shared network so Caddy (and the per-agent A2A
+    # bridges, via the public tools.* hostname Caddy fronts) can reach us.
+    # On the LLM VPS this is `perkos-assistant_default`; on the main VPS
+    # (api/app/admin live here) it's `perkos-knowledge_default`. Override
+    # with PERKOS_TOOLS_NETWORK.
+    networks:
+      - shared
+
+networks:
+  shared:
+    external: true
+    name: ${PERKOS_TOOLS_NETWORK:-perkos-knowledge_default}
