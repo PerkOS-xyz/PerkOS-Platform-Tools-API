@@ -70,6 +70,20 @@ export const createTask: Tool<typeof InputSchema> = {
       { merge: true },
     );
 
+    // Event-driven dispatch index (scales to many projects without a
+    // collection-group index): when a task is ASSIGNED, mark its board as
+    // active so the dispatcher only scans boards with pending work. The
+    // dispatcher clears the marker once a board has no Backlog tasks left.
+    if (args.agent) {
+      await db()
+        .collection("active_boards")
+        .doc(`${ctx.wallet}__${args.projectId}`)
+        .set(
+          { wallet: ctx.wallet, projectId: args.projectId, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true },
+        );
+    }
+
     return {
       ok: true,
       data: { taskId: taskRef.id, status: "Backlog", agent: args.agent ?? null },
