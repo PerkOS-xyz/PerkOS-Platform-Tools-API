@@ -56,6 +56,23 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
         message: `No task "${args.taskId}" in project "${args.projectId}".`,
       };
     }
+    // Done is terminal for a worker. Some agentic models (e.g. Kimi) list the
+    // board and "re-open" already-finished tasks (Done → In progress), which
+    // makes the dispatcher re-wake them and the model redo the work — an
+    // unbounded loop that burns LLM tokens for no new output. Treat re-opening
+    // a Done task as a no-op success so the agent moves on instead of churning.
+    const current = (task.data() as { status?: string }).status;
+    if (
+      current === "Done" &&
+      (args.status === "In progress" || args.status === "Backlog")
+    ) {
+      return {
+        ok: true,
+        data: { taskId: args.taskId, status: "Done" },
+        message: `Task "${args.taskId}" is already Done — leaving it Done. Move on to another task.`,
+      };
+    }
+
     const patch: Record<string, unknown> = {
       status: args.status,
       updatedAt: FieldValue.serverTimestamp(),
