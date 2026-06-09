@@ -1,0 +1,118 @@
+/**
+ * upsertPlanTask({ projectId, docId?, taskId?, groupId, title, desc?,
+ *                  suggestedAgent?, acceptance?, deps? }) → { docId, taskId }
+ *
+ * Create or update a `planTask` block (a DRAFT task) in a doc. This is a
+ * PROPOSAL, not a board task — it becomes a real task only when a human
+ * approves the plan (materialization). Wallet from JWT; the calling agent
+ * owns the block. Targets the active plan doc unless docId is given.
+ */
+
+import { z } from "zod";
+
+import { FieldValue } from "firebase-admin/firestore";
+
+import {
+  blockIdSchema,
+  docIdSchema,
+  ensureDoc,
+  nextBlockOrder,
+  projectIdSchema,
+  touchDocForEdit,
+} from "./docShared.js";
+import type { Tool } from "./types.js";
+
+const InputSchema = z
+  .object({
+    projectId: projectIdSchema,
+    docId: docIdSchema.optional(),
+    /** Omit to create a new draft task; pass to update an existing one. */
+    taskId: blockIdSchema.optional(),
+    /** The planGroup this draft task belongs to (from upsertPlanGroup). */
+    groupId: blockIdSchema,
+    title: z.string().min(1).max(200),
+    desc: z.string().max(4000).optional(),
+    /** Suggested worker agent by name (humans can override on approval). */
+    suggestedAgent: z.string().max(64).optional(),
+    acceptance: z.string().max(2000).optional(),
+    /** Other planTask block ids this depends on. */
+    deps: z.array(blockIdSchema).max(50).optional(),
+  })
+  .strict();
+
+export const upsertPlanTask: Tool<typeof InputSchema> = {
+  name: "upsertPlanTask",
+  kind: "action",
+  role: "user",
+  description:
+    "Create or update a DRAFT task in a doc (a proposal, not a board task — it materializes only when a human approves the plan). As the PM, decompose the goal into draft tasks under a group, with a suggestedAgent and acceptance criteria. Targets the active plan doc unless docId is given. Omit taskId to create; pass it to update.",
+  input: InputSchema,
+  async run({ args, ctx }) {
+    const refs = await ensureDoc(ctx.wallet, args.projectId, {
+      docId: args.docId,
+    });
+    if (!refs) {
+      return {
+        ok: false,
+        errorClass: "NOT_FOUND",
+        message: `No project "${args.projectId}" for this wallet.`,
+      };
+    }
+    const { docRef } = refs;
+    const docSnap = await docRef.get();
+    const status = (docSnap.data() as Record<string, unknown>)?.status;
+
+    const blocksCol = docRef.collection("blocks");
+
+    // The referenced group must exist and be a planGroup.
+    const groupSnap = await blocksCol.doc(args.groupId).get();
+    if (!groupSnap.exists || (groupSnap.data() as Record<string, unknown>).type !== "planGroup") {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message: `No planGroup "${args.groupId}" — create it with upsertPlanGroup first.`,
+      };
+    }
+
+    const taskRef = args.taskId ? blocksCol.doc(args.taskId) : blocksCol.doc();
+    const existing = args.taskId ? await taskRef.get() : null;
+    if (existing && existing.exists) {
+      const data = existing.data() as Record<string, unknown>;
+      if (data.type !== "planTask") {
+        return {
+          ok: false,
+          errorClass: "BAD_INPUT",
+          message: `Block "${args.taskId}" is not a planTask.`,
+        };
+      }
+    }
+
+    const order =
+      existing && existing.exists
+        ? ((existing.data() as Record<string, unknown>).order as number) ?? 0
+        : await nextBlockOrder(docRef);
+
+    await taskRef.set(
+      {
+        type: "planTask",
+        groupId: args.groupId,
+        title: args.title,
+        desc: args.desc ?? null,
+        suggestedAgent: args.suggestedAgent ?? null,
+        acceptance: args.acceptance ?? null,
+        deps: args.deps ?? [],
+        order,
+        owner: ctx.convId ?? "agent",
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(existing && existing.exists
+          ? {}
+          : { createdAt: FieldValue.serverTimestamp(), materializedTaskId: null }),
+      },
+      { merge: true },
+    );
+
+    await touchDocForEdit(docRef, status);
+
+    return { ok: true, data: { docId: refs.docId, taskId: taskRef.id } };
+  },
+};
