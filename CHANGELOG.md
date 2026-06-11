@@ -3,6 +3,20 @@
 All notable changes to PerkOS-Platform-Tools-API are recorded here.
 Newest first. Each entry captures *what shipped* and the *why*.
 
+## 2026-06-10
+
+### Added — activity events from worker tool calls
+
+- New `src/activityEvents.ts`: fire-and-forget `logActivity` appending
+  plain-language events to `/wallets/{wallet}/activity_events` (same shape as
+  PerkOS-API's `services/activityEvents.ts` — keep verbs in sync). Feeds the
+  mini-app's dashboard activity feed.
+- `updateTaskStatus` logs `started_task` / `completed_task` / `moved_task`
+  (incl. "submitted for review") on real status changes only — claim
+  heartbeats with an unchanged status stay silent.
+- `createTask` logs `created_task` (with the assignee), `proposePlan` logs
+  `proposed_plan` — which also powers the dashboard's "Waiting on you" queue.
+
 ## 2026-06-01
 
 ### Added — job-board tools (project tasks + chat)

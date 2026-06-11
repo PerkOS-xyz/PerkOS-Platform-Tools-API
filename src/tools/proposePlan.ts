@@ -13,6 +13,7 @@ import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { docIdSchema, ensureDoc, projectIdSchema } from "./docShared.js";
+import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 
 const InputSchema = z
@@ -75,6 +76,16 @@ export const proposePlan: Tool<typeof InputSchema> = {
       text: `📋 Plan proposed — ${tasks} task${tasks === 1 ? "" : "s"} across ${groups} group${groups === 1 ? "" : "s"}. Review and approve it in this doc.`,
       agentName: ctx.convId ?? "agent",
       createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // Activity feed + the dashboard's "Waiting on you" queue.
+    logActivity(ctx.wallet, {
+      actorType: "agent",
+      actor: ctx.convId ?? "PM",
+      verb: "proposed_plan",
+      object: `${tasks} task${tasks === 1 ? "" : "s"}`,
+      objectType: "plan",
+      projectId: args.projectId,
     });
 
     return {

@@ -24,6 +24,7 @@ import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "../firestore.js";
+import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 
 const InputSchema = z
@@ -129,6 +130,17 @@ export const createTask: Tool<typeof InputSchema> = {
           { merge: true },
         );
     }
+
+    logActivity(ctx.wallet, {
+      actorType: "agent",
+      actor: "PM",
+      verb: "created_task",
+      object: args.name,
+      objectType: "task",
+      projectId: args.projectId,
+      taskId: taskRef.id,
+      detail: args.agent ? `for ${args.agent}` : undefined,
+    });
 
     return {
       ok: true,

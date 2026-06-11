@@ -30,6 +30,7 @@ import { z } from "zod";
 import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "../firestore.js";
+import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 
 const ProofSchema = z
@@ -89,6 +90,8 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     }
     const data = task.data() as {
       status?: string;
+      name?: string;
+      agent?: string;
       goalMode?: boolean;
       claim?: { token?: string; agent?: string; expiresAtMs?: number } | null;
     };
@@ -159,6 +162,34 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     }
 
     await taskRef.update(patch);
+
+    // Activity feed: narrate the transition in plain language (only on a real
+    // status CHANGE — claim-heartbeat updates with the same status are noise).
+    if (effectiveStatus !== current) {
+      const actor = data.agent?.trim() || claim?.agent || "Worker";
+      const verb =
+        effectiveStatus === "Done"
+          ? ("completed_task" as const)
+          : effectiveStatus === "In progress" && current !== "Review"
+            ? ("started_task" as const)
+            : ("moved_task" as const);
+      const detail =
+        effectiveStatus === "Review"
+          ? "submitted for review"
+          : verb === "moved_task"
+            ? `→ ${effectiveStatus}`
+            : undefined;
+      logActivity(ctx.wallet, {
+        actorType: "agent",
+        actor,
+        verb,
+        object: data.name ?? args.taskId,
+        objectType: "task",
+        projectId: args.projectId,
+        taskId: args.taskId,
+        detail,
+      });
+    }
 
     return {
       ok: true,
