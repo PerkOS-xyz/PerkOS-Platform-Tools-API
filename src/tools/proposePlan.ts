@@ -14,6 +14,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { docIdSchema, ensureDoc, projectIdSchema } from "./docShared.js";
 import { logActivity } from "../activityEvents.js";
+import { postProjectChat } from "../projectChat.js";
 import type { Tool } from "./types.js";
 
 const InputSchema = z
@@ -61,14 +62,28 @@ export const proposePlan: Tool<typeof InputSchema> = {
       };
     }
 
-    await docRef.set(
+    const now = FieldValue.serverTimestamp();
+    const projectRef = docRef.parent.parent!;
+    const batch = projectRef.firestore.batch();
+    batch.set(
+      docRef,
+      { status: "plan_proposed", revision: FieldValue.increment(1), updatedAt: now },
+      { merge: true },
+    );
+    batch.set(
+      projectRef,
       {
-        status: "plan_proposed",
-        revision: FieldValue.increment(1),
-        updatedAt: FieldValue.serverTimestamp(),
+        workflow: {
+          phase: "awaiting_approval",
+          planId: refs.docId,
+          taskIds: [],
+          updatedAt: now,
+        },
+        updatedAt: now,
       },
       { merge: true },
     );
+    await batch.commit();
 
     // Notify the team in THIS doc's discussion.
     await docRef.collection("messages").doc().set({
@@ -77,6 +92,24 @@ export const proposePlan: Tool<typeof InputSchema> = {
       agentName: ctx.convId ?? "agent",
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    const chatDelivered = await postProjectChat({
+      wallet: ctx.wallet,
+      projectId: args.projectId,
+      convId: ((await projectRef.get()).data()?.chatConvId as string | undefined) ?? undefined,
+      sender: ctx.convId,
+      targets: [`user:${ctx.wallet}`],
+      text: `Plan proposed with ${tasks} task${tasks === 1 ? "" : "s"}. Review the plan and approve it before work starts.`,
+      event: {
+        domain: "project_workflow",
+        type: "plan_proposed",
+        projectId: args.projectId,
+        phase: "awaiting_approval",
+        planId: refs.docId,
+        actor: ctx.convId ?? "agent:unknown",
+        data: { groups, tasks },
+      },
+    }).then(() => true).catch(() => false);
 
     // Activity feed + the dashboard's "Waiting on you" queue.
     logActivity(ctx.wallet, {
@@ -90,7 +123,13 @@ export const proposePlan: Tool<typeof InputSchema> = {
 
     return {
       ok: true,
-      data: { docId: refs.docId, status: "plan_proposed", groups, tasks },
+      data: {
+        docId: refs.docId,
+        status: "plan_proposed",
+        groups,
+        tasks,
+        chatDelivered,
+      },
     };
   },
 };

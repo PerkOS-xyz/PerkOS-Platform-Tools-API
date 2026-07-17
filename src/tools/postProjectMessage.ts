@@ -3,16 +3,15 @@
  *
  * Posts a message into a project's chat — how a worker notifies the PM
  * ("task X done") or the PM broadcasts to the team. Shows up live in the
- * app's project Chat tab (useProjectMessages onSnapshot). Wallet from
+ * app's project Chat tab through PerkOS-Chat. Wallet from
  * JWT; project must belong to the calling wallet. `from` is recorded as
  * "agent" with the caller's conv-derived identity.
  */
 
 import { z } from "zod";
 
-import { FieldValue } from "firebase-admin/firestore";
-
 import { db } from "../firestore.js";
+import { postProjectChat } from "../projectChat.js";
 import type { Tool } from "./types.js";
 
 const InputSchema = z
@@ -47,15 +46,23 @@ export const postProjectMessage: Tool<typeof InputSchema> = {
         message: `No project "${args.projectId}" for this wallet.`,
       };
     }
-    const msgRef = projectRef.collection("messages").doc();
-    await msgRef.set({
-      from: "agent",
+    const message = await postProjectChat({
+      wallet: ctx.wallet,
+      projectId: args.projectId,
+      convId: (project.data()?.chatConvId as string | undefined) ?? undefined,
+      sender: ctx.convId,
       text: args.text,
-      // convId is "<kind>-<wallet>" / "agent:<name>" style; surface a
-      // best-effort sender label for the chat UI.
-      agentName: ctx.convId ?? "agent",
-      createdAt: FieldValue.serverTimestamp(),
+      targets: Array.from(
+        new Set(
+          [
+            `user:${ctx.wallet}`,
+            project.data()?.pmAgent
+              ? `agent:${String(project.data()?.pmAgent)}`
+              : null,
+          ].filter((identity): identity is string => Boolean(identity)),
+        ),
+      ),
     });
-    return { ok: true, data: { messageId: msgRef.id } };
+    return { ok: true, data: { messageId: message.id, delivered: message.delivered } };
   },
 };

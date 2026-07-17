@@ -74,6 +74,15 @@ export const createTask: Tool<typeof InputSchema> = {
         message: `No project "${args.projectId}" for this wallet.`,
       };
     }
+    const workflow = project.data()?.workflow as { phase?: string } | undefined;
+    if (workflow?.phase === "planning" || workflow?.phase === "awaiting_approval") {
+      return {
+        ok: false,
+        errorClass: "FORBIDDEN",
+        message:
+          "This project plan has not been approved. Add planTask blocks and call proposePlan; createTask is enabled after user approval.",
+      };
+    }
 
     // Validate parents exist in THIS project (prevents typo'd dependency ids
     // from blocking a task forever).
