@@ -162,13 +162,29 @@ export async function nextDocOrder(
 export async function touchDocForEdit(
   docRef: DocumentReference,
   currentStatus: unknown,
+  change?: {
+    actor?: string;
+    action?: string;
+    blockId?: string;
+    summary?: string;
+  },
 ): Promise<void> {
+  const now = FieldValue.serverTimestamp();
   const patch: Record<string, unknown> = {
     revision: FieldValue.increment(1),
-    updatedAt: FieldValue.serverTimestamp(),
+    updatedAt: now,
   };
   if (currentStatus === "draft" || currentStatus == null) {
     patch.status = "under_discussion";
   }
-  await docRef.set(patch, { merge: true });
+  const batch = docRef.firestore.batch();
+  batch.set(docRef, patch, { merge: true });
+  batch.set(docRef.collection("revisions").doc(), {
+    actor: change?.actor ?? "agent",
+    action: change?.action ?? "doc_edited",
+    blockId: change?.blockId ?? null,
+    summary: change?.summary ?? null,
+    createdAt: now,
+  });
+  await batch.commit();
 }

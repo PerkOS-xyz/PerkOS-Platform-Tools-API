@@ -53,6 +53,13 @@ export const upsertPlanGroup: Tool<typeof InputSchema> = {
     const { docRef } = refs;
     const docSnap = await docRef.get();
     const status = (docSnap.data() as Record<string, unknown>)?.status;
+    if (status === "materialized") {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message: "This plan is already materialized. Discuss changes in the doc instead of rewriting the approved task structure.",
+      };
+    }
 
     const blocksCol = docRef.collection("blocks");
     const groupRef = args.groupId
@@ -91,7 +98,12 @@ export const upsertPlanGroup: Tool<typeof InputSchema> = {
       { merge: true },
     );
 
-    await touchDocForEdit(docRef, status);
+    await touchDocForEdit(docRef, status, {
+      actor: ctx.convId,
+      action: existing && existing.exists ? "plan_group_updated" : "plan_group_created",
+      blockId: groupRef.id,
+      summary: args.title,
+    });
 
     return { ok: true, data: { docId: refs.docId, groupId: groupRef.id } };
   },
