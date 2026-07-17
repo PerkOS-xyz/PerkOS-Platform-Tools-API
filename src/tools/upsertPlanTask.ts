@@ -61,8 +61,31 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
     const { docRef } = refs;
     const docSnap = await docRef.get();
     const status = (docSnap.data() as Record<string, unknown>)?.status;
+    if (status === "materialized") {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message: "This plan is already materialized. Do not add or rewrite approved tasks.",
+      };
+    }
 
     const blocksCol = docRef.collection("blocks");
+
+    if (args.suggestedAgent) {
+      const project = await docRef.parent.parent!.get();
+      const roster = Array.isArray(project.data()?.agentIds)
+        ? (project.data()?.agentIds as unknown[]).filter(
+            (name): name is string => typeof name === "string" && name.length > 0,
+          )
+        : [];
+      if (!roster.includes(args.suggestedAgent)) {
+        return {
+          ok: false,
+          errorClass: "BAD_INPUT",
+          message: `Unknown suggestedAgent "${args.suggestedAgent}". Use one of the project's exact agent names: ${roster.join(", ") || "(no agents assigned)"}.`,
+        };
+      }
+    }
 
     // The referenced group must exist and be a planGroup.
     const groupSnap = await blocksCol.doc(args.groupId).get();
@@ -111,7 +134,12 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
       { merge: true },
     );
 
-    await touchDocForEdit(docRef, status);
+    await touchDocForEdit(docRef, status, {
+      actor: ctx.convId,
+      action: existing && existing.exists ? "plan_task_updated" : "plan_task_created",
+      blockId: taskRef.id,
+      summary: args.title,
+    });
 
     return { ok: true, data: { docId: refs.docId, taskId: taskRef.id } };
   },

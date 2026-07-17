@@ -43,6 +43,14 @@ export const proposePlan: Tool<typeof InputSchema> = {
       };
     }
     const { docRef } = refs;
+    const current = await docRef.get();
+    if (current.data()?.status === "materialized") {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message: "This plan is already approved and materialized; it cannot be proposed again.",
+      };
+    }
 
     const blocksSnap = await docRef.collection("blocks").get();
     let groups = 0;
@@ -84,6 +92,13 @@ export const proposePlan: Tool<typeof InputSchema> = {
       { merge: true },
     );
     await batch.commit();
+
+    await docRef.collection("revisions").doc().set({
+      actor: ctx.convId ?? "agent",
+      action: "plan_proposed",
+      summary: `Proposed ${tasks} task${tasks === 1 ? "" : "s"} across ${groups} group${groups === 1 ? "" : "s"}.`,
+      createdAt: FieldValue.serverTimestamp(),
+    });
 
     // Notify the team in THIS doc's discussion.
     await docRef.collection("messages").doc().set({
