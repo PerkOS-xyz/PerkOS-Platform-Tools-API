@@ -37,6 +37,10 @@ services:
       # Audit toggle (production should always be true).
       AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
 
+      # PerkOS-Chat service ingress used for project workflow updates.
+      PERKOS_CHAT_INTERNAL_URL: ${PERKOS_CHAT_INTERNAL_URL:-http://perkos-chat:6070}
+      CHAT_INTERNAL_API_KEY: ${CHAT_INTERNAL_API_KEY}
+
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
