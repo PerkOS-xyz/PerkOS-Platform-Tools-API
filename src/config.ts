@@ -64,6 +64,10 @@ const schema = z.object({
   // Bearer token gating /metrics. When unset, /metrics returns 503 —
   // never anonymous. Generate with `openssl rand -hex 32`.
   PERKOS_METRICS_TOKEN: z.string().optional(),
+
+  // --- Project chat service ingress ---
+  PERKOS_CHAT_INTERNAL_URL: z.string().url().default("http://perkos-chat:6070"),
+  CHAT_INTERNAL_API_KEY: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;
