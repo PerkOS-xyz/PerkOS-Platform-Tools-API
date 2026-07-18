@@ -32,6 +32,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
+import { redactClaimTokens } from "./outputSanitizer.js";
 
 const ProofSchema = z
   .object({
@@ -134,7 +135,7 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
       updatedAt: FieldValue.serverTimestamp(),
       lastWorkerUpdateAt: FieldValue.serverTimestamp(),
     };
-    if (typeof args.result === "string") patch.result = args.result;
+    if (typeof args.result === "string") patch.result = redactClaimTokens(args.result);
     if (args.proof && args.proof.length > 0) {
       patch.proof = FieldValue.arrayUnion(
         ...args.proof.map((p) => ({ ...p, at: Date.now() })),
@@ -162,6 +163,31 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     }
 
     await taskRef.update(patch);
+
+    // Keep the dispatcher-wide per-agent lease in sync with the task claim.
+    // This is what preserves one active task per single-session runtime across
+    // API replicas and across projects, including tasks longer than 10 min.
+    if (claimActive && args.claimToken === claim?.token && data.agent?.trim()) {
+      const leaseRef = db()
+        .collection("agent_dispatch_leases")
+        .doc(`${ctx.wallet}__${data.agent.trim()}`);
+      await db().runTransaction(async (tx) => {
+        const lease = await tx.get(leaseRef);
+        if (!lease.exists || lease.data()?.token !== args.claimToken) return;
+        if (effectiveStatus === "Done" || effectiveStatus === "Review") {
+          tx.delete(leaseRef);
+          return;
+        }
+        tx.set(
+          leaseRef,
+          {
+            expiresAtMs: Date.now() + 10 * 60_000,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      });
+    }
 
     // Activity feed: narrate the transition in plain language (only on a real
     // status CHANGE — claim-heartbeat updates with the same status are noise).

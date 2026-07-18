@@ -51,8 +51,38 @@ export const createDoc: Tool<typeof InputSchema> = {
       };
     }
 
+    // Approved workflows have one canonical document. Workers may ask to
+    // create a task-specific spec, but returning the approved plan keeps every
+    // contribution in the shared workspace and makes retries idempotent.
+    const projectData = project.data() as Record<string, unknown>;
+    const workflow = (projectData.workflow ?? null) as
+      | { phase?: string; planId?: string }
+      | null;
+    if (
+      workflow?.planId &&
+      ["running", "pm_review", "complete"].includes(String(workflow.phase))
+    ) {
+      const canonicalRef = projectRef.collection("docs").doc(workflow.planId);
+      const canonical = await canonicalRef.get();
+      if (canonical.exists) {
+        return {
+          ok: true,
+          data: {
+            docId: workflow.planId,
+            type: canonical.data()?.type ?? "plan",
+            draft: canonical.data()?.draft === true,
+            activePlan: true,
+            canonical: true,
+            reused: true,
+          },
+          message:
+            "This approved workflow uses one canonical project document. Reuse this docId instead of creating a separate deliverable doc.",
+        };
+      }
+    }
+
     if (args.type === "plan") {
-      const activePlanId = project.data()?.activePlanId;
+      const activePlanId = projectData.activePlanId;
       if (typeof activePlanId === "string" && activePlanId.length > 0) {
         const activePlanRef = projectRef.collection("docs").doc(activePlanId);
         const activePlan = await activePlanRef.get();
