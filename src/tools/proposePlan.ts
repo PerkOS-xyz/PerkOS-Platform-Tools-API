@@ -72,6 +72,11 @@ export const proposePlan: Tool<typeof InputSchema> = {
 
     const now = FieldValue.serverTimestamp();
     const projectRef = docRef.parent.parent!;
+    const project = await projectRef.get();
+    const workflowConvId =
+      typeof project.data()?.chatConvId === "string"
+        ? (project.data()?.chatConvId as string)
+        : undefined;
     const batch = projectRef.firestore.batch();
     batch.set(
       docRef,
@@ -85,6 +90,7 @@ export const proposePlan: Tool<typeof InputSchema> = {
           phase: "awaiting_approval",
           planId: refs.docId,
           taskIds: [],
+          ...(workflowConvId ? { convId: workflowConvId } : {}),
           updatedAt: now,
         },
         updatedAt: now,
@@ -111,7 +117,7 @@ export const proposePlan: Tool<typeof InputSchema> = {
     const chatDelivered = await postProjectChat({
       wallet: ctx.wallet,
       projectId: args.projectId,
-      convId: ((await projectRef.get()).data()?.chatConvId as string | undefined) ?? undefined,
+      convId: workflowConvId,
       sender: ctx.convId,
       targets: [`user:${ctx.wallet}`],
       text: `Plan proposed with ${tasks} task${tasks === 1 ? "" : "s"}. Review the plan and approve it before work starts.`,

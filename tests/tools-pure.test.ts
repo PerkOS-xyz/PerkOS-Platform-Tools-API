@@ -29,6 +29,7 @@ process.env.AUDIT_ENABLED = "false";
 const { getRunbookFor } = await import("../src/tools/getRunbookFor.js");
 const { searchKnowledge } = await import("../src/tools/searchKnowledge.js");
 const { explainPlugin } = await import("../src/tools/explainPlugin.js");
+const { redactClaimTokens } = await import("../src/tools/outputSanitizer.js");
 
 const ctx = {
   wallet: "0x" + "a".repeat(40),
@@ -131,5 +132,15 @@ describe("explainPlugin", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errorClass).toBe("NOT_FOUND");
+  });
+});
+
+describe("redactClaimTokens", () => {
+  it("removes claim credentials from persisted user content", () => {
+    expect(
+      redactClaimTokens(
+        "done — roadmap delivered; claimToken=617b2ada-bf27-4665-8393-c31d47d1e151",
+      ),
+    ).toBe("done — roadmap delivered; claimToken=[redacted]");
   });
 });

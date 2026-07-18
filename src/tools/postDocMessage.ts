@@ -15,6 +15,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firestore.js";
 import { docIdSchema, projectIdSchema } from "./docShared.js";
 import type { Tool } from "./types.js";
+import { redactClaimTokens } from "./outputSanitizer.js";
 
 const InputSchema = z
   .object({
@@ -49,7 +50,7 @@ export const postDocMessage: Tool<typeof InputSchema> = {
     const msgRef = docRef.collection("messages").doc();
     await msgRef.set({
       from: "agent",
-      text: args.text,
+      text: redactClaimTokens(args.text),
       agentName: ctx.convId ?? "agent",
       createdAt: FieldValue.serverTimestamp(),
     });

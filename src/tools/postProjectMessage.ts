@@ -13,6 +13,7 @@ import { z } from "zod";
 import { db } from "../firestore.js";
 import { postProjectChat } from "../projectChat.js";
 import type { Tool } from "./types.js";
+import { redactClaimTokens } from "./outputSanitizer.js";
 
 const InputSchema = z
   .object({
@@ -46,18 +47,28 @@ export const postProjectMessage: Tool<typeof InputSchema> = {
         message: `No project "${args.projectId}" for this wallet.`,
       };
     }
+    const projectData = project.data() as Record<string, unknown>;
+    const workflow = (projectData.workflow ?? null) as
+      | { phase?: string; convId?: string }
+      | null;
+    const workflowConvId =
+      workflow?.convId && ["running", "pm_review"].includes(String(workflow.phase))
+        ? workflow.convId
+        : undefined;
     const message = await postProjectChat({
       wallet: ctx.wallet,
       projectId: args.projectId,
-      convId: (project.data()?.chatConvId as string | undefined) ?? undefined,
+      convId:
+        workflowConvId ??
+        ((projectData.chatConvId as string | undefined) ?? undefined),
       sender: ctx.convId,
-      text: args.text,
+      text: redactClaimTokens(args.text),
       targets: Array.from(
         new Set(
           [
             `user:${ctx.wallet}`,
-            project.data()?.pmAgent
-              ? `agent:${String(project.data()?.pmAgent)}`
+            projectData.pmAgent
+              ? `agent:${String(projectData.pmAgent)}`
               : null,
           ].filter((identity): identity is string => Boolean(identity)),
         ),
