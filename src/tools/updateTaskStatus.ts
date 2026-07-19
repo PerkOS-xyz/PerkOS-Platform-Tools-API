@@ -33,6 +33,7 @@ import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
+import { isTerminalTaskTransition } from "./taskStatusPolicy.js";
 
 const ProofSchema = z
   .object({
@@ -103,10 +104,7 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     // unbounded loop that burns LLM tokens for no new output. Treat re-opening
     // a Done task as a no-op success so the agent moves on instead of churning.
     const current = data.status;
-    if (
-      current === "Done" &&
-      (args.status === "In progress" || args.status === "Backlog")
-    ) {
+    if (isTerminalTaskTransition(current, args.status)) {
       return {
         ok: true,
         data: { taskId: args.taskId, status: "Done" },
