@@ -174,7 +174,11 @@ export async function touchDocForEdit(
     revision: FieldValue.increment(1),
     updatedAt: now,
   };
-  if (currentStatus === "draft" || currentStatus == null) {
+  if (
+    currentStatus === "draft" ||
+    currentStatus === "plan_proposed" ||
+    currentStatus == null
+  ) {
     patch.status = "under_discussion";
   }
   const batch = docRef.firestore.batch();
@@ -187,4 +191,10 @@ export async function touchDocForEdit(
     createdAt: now,
   });
   await batch.commit();
+}
+
+export function normalizedPlanLabel(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase()
+    : "";
 }

@@ -16,6 +16,7 @@ import {
   docIdSchema,
   ensureDoc,
   nextBlockOrder,
+  normalizedPlanLabel,
   projectIdSchema,
   touchDocForEdit,
 } from "./docShared.js";
@@ -61,12 +62,33 @@ export const upsertPlanGroup: Tool<typeof InputSchema> = {
       };
     }
 
+    const project = await docRef.parent.parent!.get();
+    const phase = String((project.data()?.workflow as { phase?: unknown } | undefined)?.phase ?? "");
+    if (phase === "awaiting_approval") {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message: "This plan is awaiting the user's decision. Do not rewrite it until changes are requested.",
+      };
+    }
+
     const blocksCol = docRef.collection("blocks");
-    const groupRef = args.groupId
+    let groupRef = args.groupId
       ? blocksCol.doc(args.groupId)
       : blocksCol.doc();
-
-    const existing = args.groupId ? await groupRef.get() : null;
+    let existing = args.groupId ? await groupRef.get() : null;
+    if (!args.groupId) {
+      const blocks = await blocksCol.get();
+      const match = blocks.docs.find((block) => {
+        const data = block.data() as Record<string, unknown>;
+        return data.type === "planGroup" &&
+          normalizedPlanLabel(data.title) === normalizedPlanLabel(args.title);
+      });
+      if (match) {
+        groupRef = match.ref;
+        existing = match;
+      }
+    }
     if (existing && existing.exists) {
       const data = existing.data() as Record<string, unknown>;
       if (data.type !== "planGroup") {
@@ -83,6 +105,16 @@ export const upsertPlanGroup: Tool<typeof InputSchema> = {
       (existing && existing.exists
         ? ((existing.data() as Record<string, unknown>).order as number) ?? 0
         : await nextBlockOrder(docRef));
+
+    if (existing?.exists) {
+      const current = existing.data() as Record<string, unknown>;
+      if (
+        normalizedPlanLabel(current.title) === normalizedPlanLabel(args.title) &&
+        Number(current.order ?? 0) === order
+      ) {
+        return { ok: true, data: { docId: refs.docId, groupId: groupRef.id, unchanged: true } };
+      }
+    }
 
     await groupRef.set(
       {

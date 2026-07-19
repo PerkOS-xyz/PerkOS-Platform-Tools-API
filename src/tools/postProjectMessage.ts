@@ -52,7 +52,7 @@ export const postProjectMessage: Tool<typeof InputSchema> = {
       | { phase?: string; convId?: string }
       | null;
     const workflowConvId =
-      workflow?.convId && ["running", "pm_review"].includes(String(workflow.phase))
+      workflow?.convId && ["running", "pm_review", "complete"].includes(String(workflow.phase))
         ? workflow.convId
         : undefined;
     const message = await postProjectChat({

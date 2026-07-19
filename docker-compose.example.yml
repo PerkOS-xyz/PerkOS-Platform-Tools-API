@@ -32,7 +32,7 @@ services:
 
       # Rate limits.
       RATE_LIMIT_READ_PER_MIN: ${RATE_LIMIT_READ_PER_MIN:-60}
-      RATE_LIMIT_ACTION_PER_MIN: ${RATE_LIMIT_ACTION_PER_MIN:-10}
+      RATE_LIMIT_ACTION_PER_MIN: ${RATE_LIMIT_ACTION_PER_MIN:-30}
 
       # Audit toggle (production should always be true).
       AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
