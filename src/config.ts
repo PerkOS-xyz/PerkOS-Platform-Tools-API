@@ -44,7 +44,7 @@ const schema = z.object({
   // Per-wallet token bucket. Reads are cheap; actions are throttled
   // tighter.
   RATE_LIMIT_READ_PER_MIN: z.coerce.number().int().min(1).default(60),
-  RATE_LIMIT_ACTION_PER_MIN: z.coerce.number().int().min(1).default(10),
+  RATE_LIMIT_ACTION_PER_MIN: z.coerce.number().int().min(1).default(30),
 
   // --- Audit ---
   // If false, audit log writes are dropped (used in tests). Production

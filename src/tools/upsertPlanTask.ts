@@ -17,6 +17,7 @@ import {
   docIdSchema,
   ensureDoc,
   nextBlockOrder,
+  normalizedPlanLabel,
   projectIdSchema,
   touchDocForEdit,
 } from "./docShared.js";
@@ -69,12 +70,23 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
       };
     }
 
+    const projectSnapshot = await docRef.parent.parent!.get();
+    const phase = String(
+      (projectSnapshot.data()?.workflow as { phase?: unknown } | undefined)?.phase ?? "",
+    );
+    if (phase === "awaiting_approval") {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message: "This plan is awaiting the user's decision. Do not rewrite it until changes are requested.",
+      };
+    }
+
     const blocksCol = docRef.collection("blocks");
 
     if (args.suggestedAgent) {
-      const project = await docRef.parent.parent!.get();
-      const roster = Array.isArray(project.data()?.agentIds)
-        ? (project.data()?.agentIds as unknown[]).filter(
+      const roster = Array.isArray(projectSnapshot.data()?.agentIds)
+        ? (projectSnapshot.data()?.agentIds as unknown[]).filter(
             (name): name is string => typeof name === "string" && name.length > 0,
           )
         : [];
@@ -97,8 +109,21 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
       };
     }
 
-    const taskRef = args.taskId ? blocksCol.doc(args.taskId) : blocksCol.doc();
-    const existing = args.taskId ? await taskRef.get() : null;
+    let taskRef = args.taskId ? blocksCol.doc(args.taskId) : blocksCol.doc();
+    let existing = args.taskId ? await taskRef.get() : null;
+    if (!args.taskId) {
+      const blocks = await blocksCol.get();
+      const match = blocks.docs.find((block) => {
+        const data = block.data() as Record<string, unknown>;
+        return data.type === "planTask" &&
+          data.groupId === args.groupId &&
+          normalizedPlanLabel(data.title) === normalizedPlanLabel(args.title);
+      });
+      if (match) {
+        taskRef = match.ref;
+        existing = match;
+      }
+    }
     if (existing && existing.exists) {
       const data = existing.data() as Record<string, unknown>;
       if (data.type !== "planTask") {
@@ -114,6 +139,22 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
       existing && existing.exists
         ? ((existing.data() as Record<string, unknown>).order as number) ?? 0
         : await nextBlockOrder(docRef);
+
+    if (existing?.exists) {
+      const current = existing.data() as Record<string, unknown>;
+      const currentDeps = Array.isArray(current.deps) ? current.deps : [];
+      const nextDeps = args.deps ?? [];
+      const unchanged =
+        current.groupId === args.groupId &&
+        normalizedPlanLabel(current.title) === normalizedPlanLabel(args.title) &&
+        (current.desc ?? null) === (args.desc ?? null) &&
+        (current.suggestedAgent ?? null) === (args.suggestedAgent ?? null) &&
+        (current.acceptance ?? null) === (args.acceptance ?? null) &&
+        JSON.stringify(currentDeps) === JSON.stringify(nextDeps);
+      if (unchanged) {
+        return { ok: true, data: { docId: refs.docId, taskId: taskRef.id, unchanged: true } };
+      }
+    }
 
     await taskRef.set(
       {

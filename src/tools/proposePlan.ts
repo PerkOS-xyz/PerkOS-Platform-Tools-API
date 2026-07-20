@@ -24,6 +24,24 @@ const InputSchema = z
   })
   .strict();
 
+export function planProposalDecision(
+  workflow: Record<string, unknown>,
+  docStatus: unknown,
+  docId: string,
+): "propose" | "idempotent" | "conflict" {
+  if (
+    workflow.phase === "awaiting_approval" &&
+    workflow.planId === docId &&
+    docStatus === "plan_proposed"
+  ) {
+    return "idempotent";
+  }
+  if (["running", "pm_review", "complete"].includes(String(workflow.phase ?? ""))) {
+    return "conflict";
+  }
+  return "propose";
+}
+
 export const proposePlan: Tool<typeof InputSchema> = {
   name: "proposePlan",
   kind: "action",
@@ -70,34 +88,72 @@ export const proposePlan: Tool<typeof InputSchema> = {
       };
     }
 
-    const now = FieldValue.serverTimestamp();
     const projectRef = docRef.parent.parent!;
-    const project = await projectRef.get();
-    const workflowConvId =
-      typeof project.data()?.chatConvId === "string"
-        ? (project.data()?.chatConvId as string)
-        : undefined;
-    const batch = projectRef.firestore.batch();
-    batch.set(
-      docRef,
-      { status: "plan_proposed", revision: FieldValue.increment(1), updatedAt: now },
-      { merge: true },
-    );
-    batch.set(
-      projectRef,
-      {
-        workflow: {
-          phase: "awaiting_approval",
-          planId: refs.docId,
-          taskIds: [],
-          ...(workflowConvId ? { convId: workflowConvId } : {}),
+    let workflowConvId: string | undefined;
+    let proposed = false;
+    await projectRef.firestore.runTransaction(async (tx) => {
+      const [freshProject, freshDoc] = await Promise.all([
+        tx.get(projectRef),
+        tx.get(docRef),
+      ]);
+      if (!freshProject.exists || !freshDoc.exists) throw new Error("plan not found");
+      const projectData = freshProject.data() as Record<string, unknown>;
+      const workflow = (projectData.workflow ?? {}) as Record<string, unknown>;
+      workflowConvId =
+        typeof workflow.convId === "string"
+          ? workflow.convId
+          : typeof projectData.chatConvId === "string"
+            ? projectData.chatConvId
+            : undefined;
+      const decision = planProposalDecision(workflow, freshDoc.data()?.status, refs.docId);
+      if (decision === "idempotent") return;
+      if (decision === "conflict") {
+        throw new Error("This workflow has already started; its approved plan is immutable.");
+      }
+      proposed = true;
+      const now = FieldValue.serverTimestamp();
+      const currentRevision = Number(freshDoc.data()?.revision ?? 0);
+      tx.set(
+        docRef,
+        {
+          status: "plan_proposed",
+          revision: currentRevision + 1,
+          proposedRevision: currentRevision + 1,
           updatedAt: now,
         },
-        updatedAt: now,
-      },
-      { merge: true },
-    );
-    await batch.commit();
+        { merge: true },
+      );
+      tx.set(
+        projectRef,
+        {
+          workflow: {
+            ...workflow,
+            phase: "awaiting_approval",
+            planId: refs.docId,
+            taskIds: [],
+            proposalRevision: currentRevision + 1,
+            ...(workflowConvId ? { convId: workflowConvId } : {}),
+            updatedAt: now,
+          },
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+    });
+
+    if (!proposed) {
+      return {
+        ok: true,
+        data: {
+          docId: refs.docId,
+          status: "plan_proposed",
+          groups,
+          tasks,
+          chatDelivered: true,
+          unchanged: true,
+        },
+      };
+    }
 
     await docRef.collection("revisions").doc().set({
       actor: ctx.convId ?? "agent",
