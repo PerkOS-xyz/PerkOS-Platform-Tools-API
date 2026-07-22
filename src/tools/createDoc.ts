@@ -19,6 +19,7 @@ import {
   projectIdSchema,
 } from "./docShared.js";
 import type { Tool } from "./types.js";
+import { planningRunDecision, planningRunError, planningRunIdSchema } from "./planningRun.js";
 
 const InputSchema = z
   .object({
@@ -26,6 +27,7 @@ const InputSchema = z
     type: docTypeSchema,
     title: z.string().min(1).max(200),
     parentId: docIdSchema.optional(),
+    planningRunId: planningRunIdSchema,
   })
   .strict();
 
@@ -55,6 +57,13 @@ export const createDoc: Tool<typeof InputSchema> = {
     // create a task-specific spec, but returning the approved plan keeps every
     // contribution in the shared workspace and makes retries idempotent.
     const projectData = project.data() as Record<string, unknown>;
+    const runDecision = planningRunDecision(
+      (projectData.workflow ?? null) as Record<string, unknown> | null,
+      args.planningRunId,
+    );
+    if (runDecision !== "allow" && args.type === "plan") {
+      return { ok: false, errorClass: "FORBIDDEN", message: planningRunError(runDecision) };
+    }
     const workflow = (projectData.workflow ?? null) as
       | { phase?: string; planId?: string }
       | null;

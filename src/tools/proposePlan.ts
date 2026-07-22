@@ -16,11 +16,14 @@ import { docIdSchema, ensureDoc, projectIdSchema } from "./docShared.js";
 import { logActivity } from "../activityEvents.js";
 import { postProjectChat } from "../projectChat.js";
 import type { Tool } from "./types.js";
+import { db } from "../firestore.js";
+import { planningRunDecision, planningRunError, planningRunIdSchema } from "./planningRun.js";
 
 const InputSchema = z
   .object({
     projectId: projectIdSchema,
     docId: docIdSchema.optional(),
+    planningRunId: planningRunIdSchema,
   })
   .strict();
 
@@ -50,6 +53,22 @@ export const proposePlan: Tool<typeof InputSchema> = {
     "Mark a plan doc as proposed (ready for human approval) and notify the team in that doc's discussion. Call this once you've laid out the task groups and draft tasks. The plan only becomes real board tasks after a human approves it in the app. Targets the active plan doc unless docId is given.",
   input: InputSchema,
   async run({ args, ctx }) {
+    const initialProject = await db()
+      .collection("wallets")
+      .doc(ctx.wallet)
+      .collection("projects")
+      .doc(args.projectId)
+      .get();
+    if (!initialProject.exists) {
+      return { ok: false, errorClass: "NOT_FOUND", message: `No project "${args.projectId}" for this wallet.` };
+    }
+    const initialDecision = planningRunDecision(
+      (initialProject.data()?.workflow ?? null) as Record<string, unknown> | null,
+      args.planningRunId,
+    );
+    if (initialDecision !== "allow") {
+      return { ok: false, errorClass: "FORBIDDEN", message: planningRunError(initialDecision) };
+    }
     const refs = await ensureDoc(ctx.wallet, args.projectId, {
       docId: args.docId,
     });
@@ -99,6 +118,8 @@ export const proposePlan: Tool<typeof InputSchema> = {
       if (!freshProject.exists || !freshDoc.exists) throw new Error("plan not found");
       const projectData = freshProject.data() as Record<string, unknown>;
       const workflow = (projectData.workflow ?? {}) as Record<string, unknown>;
+      const runDecision = planningRunDecision(workflow, args.planningRunId);
+      if (runDecision !== "allow") throw new Error(planningRunError(runDecision));
       workflowConvId =
         typeof workflow.convId === "string"
           ? workflow.convId

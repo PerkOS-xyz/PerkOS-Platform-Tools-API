@@ -71,6 +71,14 @@ describe("plan-doc input schemas", () => {
     ).toBe(false);
   });
 
+  it("accepts a planningRunId on every PM plan mutation", () => {
+    const planningRunId = "b4ed66d0-c1ef-4ae1-9524-54dca0bb571b";
+    expect(findTool("createDoc")!.input.safeParse({ projectId: "p1", type: "plan", title: "Plan", planningRunId }).success).toBe(true);
+    expect(findTool("upsertPlanGroup")!.input.safeParse({ projectId: "p1", title: "Sprint", planningRunId }).success).toBe(true);
+    expect(findTool("upsertPlanTask")!.input.safeParse({ projectId: "p1", groupId: "g1", title: "Work", planningRunId }).success).toBe(true);
+    expect(findTool("proposePlan")!.input.safeParse({ projectId: "p1", planningRunId }).success).toBe(true);
+  });
+
   it("rejects malformed projectId", () => {
     const t = findTool("readDoc")!;
     expect(t.input.safeParse({ projectId: "bad id!" }).success).toBe(false);

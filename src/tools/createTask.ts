@@ -75,12 +75,15 @@ export const createTask: Tool<typeof InputSchema> = {
       };
     }
     const workflow = project.data()?.workflow as { phase?: string } | undefined;
-    if (workflow?.phase === "planning" || workflow?.phase === "awaiting_approval") {
+    if (
+      workflow?.phase &&
+      ["planning", "awaiting_approval", "approved", "running", "pm_review", "complete"].includes(workflow.phase)
+    ) {
       return {
         ok: false,
         errorClass: "FORBIDDEN",
         message:
-          "This project plan has not been approved. Add planTask blocks and call proposePlan; createTask is enabled after user approval.",
+          "This project uses an approval-controlled plan. Draft with planTask blocks during planning; after approval the server materializes the immutable task set. Do not call createTask directly.",
       };
     }
 

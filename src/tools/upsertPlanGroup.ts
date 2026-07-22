@@ -21,6 +21,7 @@ import {
   touchDocForEdit,
 } from "./docShared.js";
 import type { Tool } from "./types.js";
+import { planningRunDecision, planningRunError, planningRunIdSchema } from "./planningRun.js";
 
 const InputSchema = z
   .object({
@@ -30,6 +31,7 @@ const InputSchema = z
     groupId: blockIdSchema.optional(),
     title: z.string().min(1).max(200),
     order: z.number().int().min(0).max(100000).optional(),
+    planningRunId: planningRunIdSchema,
   })
   .strict();
 
@@ -63,7 +65,12 @@ export const upsertPlanGroup: Tool<typeof InputSchema> = {
     }
 
     const project = await docRef.parent.parent!.get();
-    const phase = String((project.data()?.workflow as { phase?: unknown } | undefined)?.phase ?? "");
+    const workflow = (project.data()?.workflow ?? null) as Record<string, unknown> | null;
+    const runDecision = planningRunDecision(workflow, args.planningRunId);
+    if (runDecision !== "allow") {
+      return { ok: false, errorClass: "FORBIDDEN", message: planningRunError(runDecision) };
+    }
+    const phase = String(workflow?.phase ?? "");
     if (phase === "awaiting_approval") {
       return {
         ok: false,

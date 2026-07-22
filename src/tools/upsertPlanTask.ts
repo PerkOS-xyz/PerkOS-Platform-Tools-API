@@ -22,6 +22,7 @@ import {
   touchDocForEdit,
 } from "./docShared.js";
 import type { Tool } from "./types.js";
+import { planningRunDecision, planningRunError, planningRunIdSchema } from "./planningRun.js";
 
 const InputSchema = z
   .object({
@@ -38,6 +39,7 @@ const InputSchema = z
     acceptance: z.string().max(2000).optional(),
     /** Other planTask block ids this depends on. */
     deps: z.array(blockIdSchema).max(50).optional(),
+    planningRunId: planningRunIdSchema,
   })
   .strict();
 
@@ -71,9 +73,12 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
     }
 
     const projectSnapshot = await docRef.parent.parent!.get();
-    const phase = String(
-      (projectSnapshot.data()?.workflow as { phase?: unknown } | undefined)?.phase ?? "",
-    );
+    const workflow = (projectSnapshot.data()?.workflow ?? null) as Record<string, unknown> | null;
+    const runDecision = planningRunDecision(workflow, args.planningRunId);
+    if (runDecision !== "allow") {
+      return { ok: false, errorClass: "FORBIDDEN", message: planningRunError(runDecision) };
+    }
+    const phase = String(workflow?.phase ?? "");
     if (phase === "awaiting_approval") {
       return {
         ok: false,
