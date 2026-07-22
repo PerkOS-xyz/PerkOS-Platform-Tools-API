@@ -33,7 +33,7 @@ import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
-import { isTerminalTaskTransition } from "./taskStatusPolicy.js";
+import { dispatchStateForStatus, isTerminalTaskTransition } from "./taskStatusPolicy.js";
 
 const ProofSchema = z
   .object({
@@ -158,7 +158,11 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     // Terminal statuses release the worker-protocol flag.
     if (effectiveStatus === "Done" || effectiveStatus === "Review") {
       patch.workerProtocol = FieldValue.delete();
+      patch.claim = FieldValue.delete();
+      patch.nextDispatchAtMs = FieldValue.delete();
+      patch.lastDispatchError = FieldValue.delete();
     }
+    patch.dispatchState = dispatchStateForStatus(effectiveStatus);
 
     await taskRef.update(patch);
 
