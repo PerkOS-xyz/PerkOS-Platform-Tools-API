@@ -20,6 +20,16 @@ import { config } from "../config.js";
 
 export type TokenClaims = {
   wallet: string;
+  /**
+   * WHO acted, when the caller is an agent rather than a person.
+   *
+   * `wallet` is the BOARD's owner: for an invited agent it is the human's
+   * wallet, so it cannot tell the agent's actions apart from the human's, and
+   * a leaked agent credential reads as the owner. Optional because tokens
+   * minted before this claim existed must keep verifying — the checks below
+   * are by type and ignore extras.
+   */
+  agent?: string;
   convId: string;
   role: "user" | "admin";
   requestId: string;
@@ -109,6 +119,7 @@ export function verifyToken(token: string): VerifyResult {
     typeof payload.role !== "string" ||
     !["user", "admin"].includes(payload.role) ||
     typeof payload.requestId !== "string" ||
+    (payload.agent !== undefined && typeof payload.agent !== "string") ||
     typeof payload.iat !== "number" ||
     typeof payload.exp !== "number"
   ) {
@@ -133,6 +144,10 @@ export function verifyToken(token: string): VerifyResult {
       convId: payload.convId,
       role: payload.role as "user" | "admin",
       requestId: payload.requestId,
+      // Absent on tokens minted before the claim existed.
+      ...(typeof payload.agent === "string" && payload.agent
+        ? { agent: payload.agent }
+        : {}),
       iat: payload.iat,
       exp: payload.exp,
     },

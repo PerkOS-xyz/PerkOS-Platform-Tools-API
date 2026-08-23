@@ -75,6 +75,10 @@ export function audit(
     tsMs: ts,
     requestId: claims.requestId,
     wallet: claims.wallet,
+    // Which agent credential was used. Without it every agent action in the
+    // log is indistinguishable from the owner's own, so a leaked credential
+    // leaves no trace of WHICH agent it impersonated.
+    agent: claims.agent ?? null,
     convId: claims.convId,
     role: claims.role,
     tool: record.tool,
