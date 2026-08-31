@@ -1,0 +1,51 @@
+# PerkOS Platform Tools API — isolated QA deployment.
+#
+# Run with the PerkOS API QA environment file so Firebase, the internal Chat
+# key, and the shared tools JWT remain a single environment boundary:
+#
+#   docker compose -p perkos-platform-tools-qa \
+#     --env-file ../perkos-api-qa/.env.qa \
+#     -f docker-compose.qa.yml up -d --build
+
+services:
+  platform-tools-qa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: perkos-platform-tools-api:qa
+    container_name: perkos-platform-tools-api-qa
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8083
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PERKOS_ENVIRONMENT: qa
+
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+
+      JWT_SHARED_SECRET: ${A2A_TOOLS_JWT_SECRET}
+      JWT_MAX_AGE_SECONDS: ${JWT_MAX_AGE_SECONDS:-60}
+
+      RATE_LIMIT_READ_PER_MIN: ${RATE_LIMIT_READ_PER_MIN:-60}
+      RATE_LIMIT_ACTION_PER_MIN: ${RATE_LIMIT_ACTION_PER_MIN:-30}
+      AUDIT_ENABLED: ${AUDIT_ENABLED:-true}
+
+      PERKOS_CHAT_INTERNAL_URL: ${PERKOS_CHAT_INTERNAL_URL:-http://perkos-chat-qa:6070}
+      CHAT_INTERNAL_API_KEY: ${CHAT_INTERNAL_API_KEY}
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8083/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - shared
+
+networks:
+  shared:
+    external: true
+    name: ${PERKOS_TOOLS_NETWORK:-perkos-knowledge_default}
