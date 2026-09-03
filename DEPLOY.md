@@ -1,10 +1,21 @@
 # Deploy runbook — PerkOS Platform Tools API
 
-Manual deploy to the LLM VPS at `46.225.62.30` (SSH key `~/.ssh/perkos-cloud-agents-hetzner`). Lives alongside `perkos-assistant` + `perkos-assistant-bridge`.
+Manual deploy to the LLM VPS (see "Deploy target" below). Lives alongside `perkos-assistant` + `perkos-assistant-bridge`.
+
+## Deploy target
+
+The host and SSH key are deliberately not recorded in this repo. Export them
+before running any command below; the real values live in the workspace
+`CLAUDE.md`, which is not versioned.
+
+```bash
+export DEPLOY_HOST=root@<llm-vps>
+export DEPLOY_KEY=~/.ssh/<llm-vps-key>
+```
 
 ## Prerequisites
 
-- SSH access to `root@46.225.62.30`
+- SSH access to the LLM VPS as root, with the deploy key
 - Firebase service account JSON (see SECRETS.md for source)
 - A fresh `JWT_SHARED_SECRET` (`openssl rand -hex 32`) — must match what the bridge container uses
 
@@ -13,7 +24,7 @@ Manual deploy to the LLM VPS at `46.225.62.30` (SSH key `~/.ssh/perkos-cloud-age
 ### Step 1 — Lay down source on the VPS
 
 ```bash
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 '
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" '
   mkdir -p /opt/perkos-platform-tools-api
   cd /opt/perkos-platform-tools-api
   if [ ! -d PerkOS-Platform-Tools-API ]; then
@@ -29,7 +40,7 @@ Repo is private — `gh auth setup-git` on the VPS or use rsync from local inste
 ### Step 2 — Configure secrets
 
 ```bash
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 '
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" '
   cd /opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API
   cp .env.example .env
   chmod 600 .env
@@ -45,7 +56,7 @@ Then edit `.env` and set:
 ### Step 3 — Build + run
 
 ```bash
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 '
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" '
   cd /opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API
   docker compose -f docker-compose.example.yml build
   docker compose -f docker-compose.example.yml up -d
@@ -59,15 +70,15 @@ First build ~2 min (npm install + tsc). Subsequent rebuilds reuse the layer cach
 ### Step 4 — Verify
 
 ```bash
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 \
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" \
   'docker inspect perkos-platform-tools-api --format "{{.State.Health.Status}}"'
 # Expect: "healthy" within ~30s.
 
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 \
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" \
   'docker exec perkos-platform-tools-api wget -qO- http://127.0.0.1:8080/health'
 # Expect: {"ok":true,"uptime":...}
 
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 \
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" \
   'docker exec perkos-platform-tools-api wget -qO- http://127.0.0.1:8080/ready'
 # Expect: {"ok":true,"deps":{"firestore":"ok"}} — confirms Firebase admin auth works
 ```
@@ -80,7 +91,7 @@ The bridge needs to know where to call us. Tools-api listens on `8080` inside th
 
 ```bash
 # Option A: pull from main on the VPS
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 '
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" '
   cd /opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API
   git pull
   docker compose -f docker-compose.example.yml build
@@ -88,11 +99,11 @@ ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 '
 '
 
 # Option B: rsync from local (if VPS can't pull from private repo)
-rsync -avz -e "ssh -i ~/.ssh/perkos-cloud-agents-hetzner" \
+rsync -avz -e "ssh -i $DEPLOY_KEY" \
   --exclude={.git/,node_modules/,dist/,.env} \
-  ./ root@46.225.62.30:/opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API/
+  ./ "$DEPLOY_HOST":/opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API/
 
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 \
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" \
   'cd /opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API && \
    docker compose -f docker-compose.example.yml build && \
    docker compose -f docker-compose.example.yml up -d'
@@ -101,7 +112,7 @@ ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 \
 ## Tearing down
 
 ```bash
-ssh -i ~/.ssh/perkos-cloud-agents-hetzner root@46.225.62.30 '
+ssh -i "$DEPLOY_KEY" "$DEPLOY_HOST" '
   cd /opt/perkos-platform-tools-api/PerkOS-Platform-Tools-API
   docker compose -f docker-compose.example.yml down
 '
