@@ -29,7 +29,7 @@ Recommended approach: **dual-secret rolling** (allow either secret to validate f
 
 ### FIREBASE_PRIVATE_KEY (every 180 days)
 
-The miniapp container (`62.238.28.49:/opt/perkos-miniapp/.env`) uses the SAME service account today, so rotating affects both:
+The miniapp container (`/opt/perkos-miniapp/.env` on the app VPS) uses the SAME service account today, so rotating affects both:
 
 1. Firebase Console > Project settings > Service accounts > Generate key
 2. Copy the new `private_key` into both `.env` files (miniapp + tools-api)
