@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { normalizeWalletAddress } from "@perkos/shared-types";
 
 import { db } from "../firestore.js";
 import type { Tool } from "./types.js";
@@ -47,7 +48,7 @@ export const getMyAgent: Tool<typeof InputSchema> = {
     const reg = registry.data() as Record<string, unknown>;
     const owner =
       typeof reg.walletAddress === "string"
-        ? reg.walletAddress.toLowerCase()
+        ? normalizeWalletAddress(reg.walletAddress)
         : null;
     if (owner !== ctx.wallet) {
       // Don't leak existence to wrong-owner callers — same response

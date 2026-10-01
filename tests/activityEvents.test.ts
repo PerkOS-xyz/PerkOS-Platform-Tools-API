@@ -1,7 +1,7 @@
 /**
  * activityEvents — events appended by worker tool calls for the mini-app's
  * dashboard feed. Contract: one doc per event under
- * /wallets/{wallet}/activity_events, wallet lowercased, undefined/empty
+ * /wallets/{wallet}/activity_events, EVM lowercase / Solana exact, undefined/empty
  * fields stripped, and the helper NEVER throws (logging must not break the
  * tool call it decorates).
  */
@@ -42,8 +42,14 @@ beforeEach(() => {
 });
 
 describe("logActivity", () => {
+  it("keeps case-distinct Solana activity in separate paths", () => {
+    for (const wallet of ["So11111111111111111111111111111111111111112", "so11111111111111111111111111111111111111112"]) {
+      logActivity(wallet, { actorType: "agent", actor: "fixture", verb: "completed_task", object: "fixture" });
+      expect(pathParts).toEqual(["wallets", wallet, "activity_events"]);
+    }
+  });
   it("writes under the lowercased wallet with stamped ts", () => {
-    logActivity("0xAbC", {
+    logActivity(`0x${"Ab".repeat(20)}`, {
       actorType: "agent",
       actor: "Maya",
       verb: "completed_task",
@@ -51,7 +57,7 @@ describe("logActivity", () => {
       projectId: "p1",
       taskId: "t1",
     });
-    expect(pathParts).toEqual(["wallets", "0xabc", "activity_events"]);
+    expect(pathParts).toEqual(["wallets", `0x${"ab".repeat(20)}`, "activity_events"]);
     expect(addMock.mock.calls[0]![0]).toEqual({
       actorType: "agent",
       actor: "Maya",

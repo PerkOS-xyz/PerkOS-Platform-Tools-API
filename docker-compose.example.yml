@@ -29,6 +29,7 @@ services:
       # Rotate per SECRETS.md (90-day schedule).
       JWT_SHARED_SECRET: ${JWT_SHARED_SECRET}
       JWT_MAX_AGE_SECONDS: ${JWT_MAX_AGE_SECONDS:-60}
+      PERKOS_SOLANA_LOGIN_ENABLED: ${PERKOS_SOLANA_LOGIN_ENABLED:-false}
 
       # Rate limits.
       RATE_LIMIT_READ_PER_MIN: ${RATE_LIMIT_READ_PER_MIN:-60}
