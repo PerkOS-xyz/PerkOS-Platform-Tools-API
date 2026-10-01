@@ -13,8 +13,9 @@
 
 FROM node:22-alpine AS deps
 WORKDIR /app
+RUN apk add --no-cache git
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 FROM node:22-alpine AS build
 WORKDIR /app
@@ -36,8 +37,9 @@ RUN apk add --no-cache tini
 
 # Production deps only — keeps the image small (~150 MB).
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev --no-audit --no-fund && \
-    npm cache clean --force
+RUN apk add --no-cache --virtual .git-deps git && \
+    npm ci --omit=dev --no-audit --no-fund && \
+    npm cache clean --force && apk del .git-deps
 
 COPY --from=build /app/dist ./dist
 COPY runbook /opt/perkos-runbook

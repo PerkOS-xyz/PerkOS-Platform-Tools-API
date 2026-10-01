@@ -15,11 +15,13 @@
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { normalizeWalletAddress, walletChain, type WalletChain } from "@perkos/shared-types";
 
 import { config } from "../config.js";
 
 export type TokenClaims = {
   wallet: string;
+  walletChain?: WalletChain;
   /**
    * WHO acted, when the caller is an agent rather than a person.
    *
@@ -99,8 +101,8 @@ export function verifyToken(token: string): VerifyResult {
   } catch {
     return { ok: false, reason: "bad header json" };
   }
-  if (header.alg !== "HS256") {
-    return { ok: false, reason: `unsupported alg ${header.alg}` };
+  if (!header || header.alg !== "HS256") {
+    return { ok: false, reason: "unsupported alg" };
   }
 
   // Payload.
@@ -113,8 +115,8 @@ export function verifyToken(token: string): VerifyResult {
 
   // Shape check.
   if (
-    typeof payload.wallet !== "string" ||
-    !/^0x[a-f0-9]{40}$/i.test(payload.wallet) ||
+    !payload || typeof payload.wallet !== "string" ||
+    !walletChain(payload.wallet) ||
     typeof payload.convId !== "string" ||
     typeof payload.role !== "string" ||
     !["user", "admin"].includes(payload.role) ||
@@ -124,6 +126,14 @@ export function verifyToken(token: string): VerifyResult {
     typeof payload.exp !== "number"
   ) {
     return { ok: false, reason: "claims missing or malformed" };
+  }
+
+  const chain = walletChain(payload.wallet)!;
+  if (
+    (payload.walletChain !== undefined && payload.walletChain !== chain) ||
+    (chain === "solana" && (!config.PERKOS_SOLANA_LOGIN_ENABLED || payload.walletChain !== "solana"))
+  ) {
+    return { ok: false, reason: "wallet chain disabled or mismatched" };
   }
 
   const nowSec = Math.floor(Date.now() / 1000);
@@ -140,9 +150,10 @@ export function verifyToken(token: string): VerifyResult {
   return {
     ok: true,
     claims: {
-      wallet: payload.wallet.toLowerCase(),
+      wallet: normalizeWalletAddress(payload.wallet),
+      ...(chain === "solana" ? { walletChain: chain } : {}),
       convId: payload.convId,
-      role: payload.role as "user" | "admin",
+      role: chain === "solana" ? "user" : payload.role as "user" | "admin",
       requestId: payload.requestId,
       // Absent on tokens minted before the claim existed.
       ...(typeof payload.agent === "string" && payload.agent

@@ -39,6 +39,9 @@ const schema = z.object({
   // Max JWT age. Bridge mints short-lived tokens (30s) so even if
   // intercepted on the local docker network they expire quickly.
   JWT_MAX_AGE_SECONDS: z.coerce.number().int().min(5).max(300).default(60),
+  // Enable only after the exact-case bridge and workspace consumers deploy.
+  PERKOS_SOLANA_LOGIN_ENABLED: z.enum(["true", "false"]).default("false")
+    .transform((value) => value === "true"),
 
   // --- Rate limit ---
   // Per-wallet token bucket. Reads are cheap; actions are throttled

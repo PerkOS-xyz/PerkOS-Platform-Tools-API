@@ -17,6 +17,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@perkos/shared-types": "git+https://github.com/PerkOS-xyz/PerkOS-Shared-Types.git#476df70e21bb8d0f4290e4ffb474f1fdc4c0868b",
     "@fastify/jwt": "^9.0.4",
     "@fastify/rate-limit": "^10.2.2",
     "fastify": "^5.1.0",

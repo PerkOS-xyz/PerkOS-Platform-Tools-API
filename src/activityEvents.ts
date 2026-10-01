@@ -9,6 +9,7 @@
  */
 
 import { FieldValue } from "firebase-admin/firestore";
+import { normalizeWalletAddress } from "@perkos/shared-types";
 
 import { db } from "./firestore.js";
 
@@ -37,7 +38,7 @@ export function logActivity(
   try {
     void db()
       .collection("wallets")
-      .doc(wallet.toLowerCase())
+      .doc(normalizeWalletAddress(wallet))
       .collection("activity_events")
       .add({ ...clean, ts: FieldValue.serverTimestamp() })
       .catch(() => {});
