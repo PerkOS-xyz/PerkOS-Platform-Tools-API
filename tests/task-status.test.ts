@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dispatchStateForStatus,
   isTerminalTaskTransition,
+  refreshesClaim,
 } from "../src/tools/taskStatusPolicy.js";
 
 describe("isTerminalTaskTransition", () => {
@@ -25,5 +26,20 @@ describe("dispatchStateForStatus", () => {
     expect(dispatchStateForStatus("In progress")).toBe("working");
     expect(dispatchStateForStatus("Review")).toBe("review");
     expect(dispatchStateForStatus("Done")).toBe("completed");
+  });
+});
+
+describe("refreshesClaim", () => {
+  it("keeps the claim alive while the holder is still working", () => {
+    expect(refreshesClaim("In progress", true)).toBe(true);
+    expect(refreshesClaim("Backlog", true)).toBe(true);
+  });
+
+  it.each(["Done", "Review"])("releases instead of refreshing on %s", (status) => {
+    expect(refreshesClaim(status, true)).toBe(false);
+  });
+
+  it("never refreshes for a caller that does not hold the claim", () => {
+    expect(refreshesClaim("In progress", false)).toBe(false);
   });
 });
