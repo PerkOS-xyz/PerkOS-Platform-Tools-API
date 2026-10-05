@@ -33,7 +33,7 @@ import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
-import { dispatchStateForStatus, isTerminalTaskTransition } from "./taskStatusPolicy.js";
+import { dispatchStateForStatus, isPlaceholderResult, isTerminalTaskTransition } from "./taskStatusPolicy.js";
 
 const ProofSchema = z
   .object({
@@ -125,6 +125,19 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
         ok: false,
         errorClass: "FORBIDDEN",
         message: `Task "${args.taskId}" is claimed by another worker. Work only the task you were assigned.`,
+      };
+    }
+
+    if (
+      (args.status === "Done" || args.status === "Review") &&
+      typeof args.result === "string" &&
+      isPlaceholderResult(args.result)
+    ) {
+      return {
+        ok: false,
+        errorClass: "BAD_INPUT",
+        message:
+          "`result` must carry the deliverable itself (the text, list or document the task asked for), not a completion note. Send the full result again.",
       };
     }
 
