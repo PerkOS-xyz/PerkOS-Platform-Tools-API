@@ -59,3 +59,39 @@ export function logDeliveredResult(
     // Never let the coordination log break the tool call it decorates.
   }
 }
+
+/** One "picked up" line per task, so a retry updates it in place. */
+export function startEntryId(taskId: string): string {
+  return `start-${taskId}`;
+}
+
+/** A teammate takes its task: its own short line in the conversation. */
+export function logTaskPickedUp(
+  wallet: string,
+  projectId: string,
+  entry: { agent: string; taskId: string; taskName: string },
+): void {
+  const text = coordinationText(`On it: ${entry.taskName}`);
+  if (!wallet || !projectId || !entry.taskId || !entry.taskName.trim()) return;
+  try {
+    void db()
+      .collection("wallets")
+      .doc(normalizeWalletAddress(wallet))
+      .collection("projects")
+      .doc(projectId)
+      .collection("coordination")
+      .doc(startEntryId(entry.taskId))
+      .set({
+        from: `agent:${entry.agent}`,
+        to: "sparky",
+        kind: "reply",
+        taskId: entry.taskId,
+        text,
+        ok: true,
+        ts: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+  } catch {
+    // Never let the coordination log break the tool call it decorates.
+  }
+}
