@@ -34,7 +34,7 @@ import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
 import { logDeliveredResult } from "../coordinationLog.js";
-import { dispatchStateForStatus, isTerminalTaskTransition } from "./taskStatusPolicy.js";
+import { dispatchStateForStatus, isTerminalTaskTransition, refreshesClaim } from "./taskStatusPolicy.js";
 
 const ProofSchema = z
   .object({
@@ -142,7 +142,7 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     }
     // Heartbeat: a valid token refreshes the claim TTL (10 min) so the
     // dispatcher knows the worker is alive on long tasks.
-    if (claimActive && args.claimToken === claim?.token) {
+    if (refreshesClaim(args.status, claimActive && args.claimToken === claim?.token)) {
       patch["claim.expiresAtMs"] = Date.now() + 10 * 60_000;
     }
 
