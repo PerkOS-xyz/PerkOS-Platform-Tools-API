@@ -10,6 +10,16 @@ export function dispatchStateForStatus(status: string): "queued" | "working" | "
   return "queued";
 }
 
+/**
+ * A claim holder's update refreshes the claim TTL, except when it finishes:
+ * Done and Review release the claim instead. Doing both in one write is
+ * rejected by Firestore ("Field claim was specified multiple times"), which
+ * left every protocol-following worker unable to finish its task.
+ */
+export function refreshesClaim(status: string, holder: boolean): boolean {
+  return holder && status !== "Done" && status !== "Review";
+}
+
 const PLACEHOLDER_RESULT =
   /^(the )?(task )?(is )?(done|complete|completed|finished|ok|okay|ready|submitted|delivered|see above|n a)$/;
 
