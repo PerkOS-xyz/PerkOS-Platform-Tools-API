@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { config } from "./config.js";
 
 function senderIdentity(value?: string): string {
@@ -14,6 +16,8 @@ export async function postProjectChat(input: {
   text: string;
   targets?: string[];
   event?: Record<string, unknown>;
+  /** Stable message id; derived from the content when omitted. */
+  id?: string;
 }): Promise<{ id: string; delivered: number }> {
   if (!config.CHAT_INTERNAL_API_KEY) {
     throw new Error("CHAT_INTERNAL_API_KEY is not configured");
@@ -25,6 +29,8 @@ export async function postProjectChat(input: {
       "content-type": "application/json",
     },
     body: JSON.stringify({
+      // PerkOS-Chat answers 400 BAD_FRAME without a stable id.
+      id: input.id ?? projectChatMessageId(input),
       walletAddress: input.wallet,
       convId: input.convId ?? `project-${input.projectId}`,
       from: senderIdentity(input.sender),
@@ -42,4 +48,20 @@ export async function postProjectChat(input: {
     throw new Error(payload.error?.message ?? `PerkOS-Chat returned ${response.status}`);
   }
   return { id: payload.id, delivered: payload.delivered ?? 0 };
+}
+
+/**
+ * Deterministic id for a post: a retried request in the same minute is the
+ * same message (deduplicated), while an agent repeating itself later is not.
+ */
+export function projectChatMessageId(
+  input: { projectId: string; convId?: string; sender?: string; text: string; event?: Record<string, unknown> },
+  nowMs: number = Date.now(),
+): string {
+  const minute = Math.floor(nowMs / 60_000);
+  const digest = createHash("sha256")
+    .update(JSON.stringify([input.projectId, input.convId ?? "", senderIdentity(input.sender), input.text, input.event?.type ?? "", minute]))
+    .digest("hex")
+    .slice(0, 32);
+  return `tools-${digest}`;
 }
