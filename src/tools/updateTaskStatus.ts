@@ -31,7 +31,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
-import { logDeliveredResult } from "../coordinationLog.js";
+import { logDeliveredResult, logTaskPickedUp } from "../coordinationLog.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
 import { dispatchStateForStatus, isPlaceholderResult, isTerminalTaskTransition, refreshesClaim } from "./taskStatusPolicy.js";
@@ -231,6 +231,14 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
         taskId: args.taskId,
         detail,
       });
+      // Conversation: the teammate says it took the task.
+      if (verb === "started_task") {
+        logTaskPickedUp(ctx.wallet, args.projectId, {
+          agent: actor,
+          taskId: args.taskId,
+          taskName: data.name ?? args.taskId,
+        });
+      }
     }
 
     // Conversation: the delivered work reaches the project conversation.

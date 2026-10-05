@@ -25,7 +25,7 @@ vi.mock("../src/firestore.js", () => {
   return { db: () => { pathParts = []; return node(); } };
 });
 
-const { coordinationText, logDeliveredResult, resultEntryId, COORDINATION_TEXT_MAX } = await import(
+const { coordinationText, logDeliveredResult, logTaskPickedUp, resultEntryId, startEntryId, COORDINATION_TEXT_MAX } = await import(
   "../src/coordinationLog.js"
 );
 
@@ -65,5 +65,21 @@ describe("coordinationText", () => {
     expect(clean).not.toContain("abcdefghijklmnop1234");
     expect(clean.length).toBeLessThanOrEqual(COORDINATION_TEXT_MAX);
     expect(clean.endsWith("…")).toBe(true);
+  });
+});
+
+describe("logTaskPickedUp", () => {
+  beforeEach(() => setMock.mockClear());
+
+  it("writes the teammate's own line, once per task", () => {
+    logTaskPickedUp(SOLANA, "proj1", { agent: "Writer", taskId: "task1", taskName: "Draft the customer FAQ" });
+    expect(pathParts).toEqual(["wallets", SOLANA, "projects", "proj1", "coordination", startEntryId("task1")]);
+    const [entry] = setMock.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(entry).toMatchObject({ from: "agent:Writer", to: "sparky", kind: "reply", taskId: "task1", text: "On it: Draft the customer FAQ" });
+  });
+
+  it("skips a task without a name", () => {
+    logTaskPickedUp(SOLANA, "proj1", { agent: "Writer", taskId: "task1", taskName: "  " });
+    expect(setMock).not.toHaveBeenCalled();
   });
 });
