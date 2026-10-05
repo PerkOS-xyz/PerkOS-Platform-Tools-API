@@ -31,9 +31,9 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
+import { logDeliveredResult } from "../coordinationLog.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
-import { logDeliveredResult } from "../coordinationLog.js";
 import { dispatchStateForStatus, isTerminalTaskTransition, refreshesClaim } from "./taskStatusPolicy.js";
 
 const ProofSchema = z
