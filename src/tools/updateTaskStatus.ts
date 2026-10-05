@@ -31,6 +31,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
+import { logDeliveredResult } from "../coordinationLog.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
 import { dispatchStateForStatus, isPlaceholderResult, isTerminalTaskTransition, refreshesClaim } from "./taskStatusPolicy.js";
@@ -229,6 +230,15 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
         projectId: args.projectId,
         taskId: args.taskId,
         detail,
+      });
+    }
+
+    // Conversation: the delivered work reaches the project conversation.
+    if ((effectiveStatus === "Done" || effectiveStatus === "Review") && typeof args.result === "string") {
+      logDeliveredResult(ctx.wallet, args.projectId, {
+        agent: data.agent?.trim() || claim?.agent || "Worker",
+        taskId: args.taskId,
+        text: args.result,
       });
     }
 
