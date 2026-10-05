@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   dispatchStateForStatus,
+  isPlaceholderResult,
   isTerminalTaskTransition,
   refreshesClaim,
 } from "../src/tools/taskStatusPolicy.js";
@@ -41,5 +42,22 @@ describe("refreshesClaim", () => {
 
   it("never refreshes for a caller that does not hold the claim", () => {
     expect(refreshesClaim("In progress", false)).toBe(false);
+  });
+});
+
+describe("isPlaceholderResult", () => {
+  it.each(["done", "Done.", "  DONE!  ", "Completed", "Task complete.", "The task is done", "ok", "", "   "])(
+    "rejects %j as a finishing result",
+    (text) => {
+      expect(isPlaceholderResult(text)).toBe(true);
+    },
+  );
+
+  it.each([
+    "## FAQ\n\n1. Does it have caffeine? Yes, black tea has about 40 mg.",
+    "Done: three product pages are below.\n\n### Autumn Spice Chai",
+    "Posted the launch email to the list and attached the copy.",
+  ])("accepts a real deliverable", (text) => {
+    expect(isPlaceholderResult(text)).toBe(false);
   });
 });
