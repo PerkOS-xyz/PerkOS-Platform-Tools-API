@@ -35,6 +35,7 @@ import { logDeliveredResult, logTaskPickedUp } from "../coordinationLog.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
 import { dispatchStateForStatus, isPlaceholderResult, isTerminalTaskTransition, refreshesClaim } from "./taskStatusPolicy.js";
+import { buildTaskStatusEvents, enqueueExecutionEvents } from "../executionEvents.js";
 
 const ProofSchema = z
   .object({
@@ -97,6 +98,10 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
       agent?: string;
       goalMode?: boolean;
       claim?: { token?: string; agent?: string; expiresAtMs?: number } | null;
+      runId?: string;
+      traceId?: string;
+      dispatchAttempts?: number;
+      judgeAttempts?: number;
     };
 
     // Done is terminal for a worker. Some agentic models (e.g. Kimi) list the
@@ -178,7 +183,42 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     }
     patch.dispatchState = dispatchStateForStatus(effectiveStatus);
 
-    await taskRef.update(patch);
+    const actor = data.agent?.trim() || claim?.agent || "Worker";
+    const runId = data.runId ?? `task:${args.projectId}:${args.taskId}:legacy`;
+    const traceId = data.traceId ?? runId;
+    const attempt = Math.max(1, data.dispatchAttempts ?? data.judgeAttempts ?? 1);
+    const canonicalEvents = buildTaskStatusEvents({
+      wallet: ctx.wallet,
+      projectId: args.projectId,
+      taskId: args.taskId,
+      taskName: data.name ?? args.taskId,
+      agentId: actor,
+      runId,
+      traceId,
+      attempt,
+      currentStatus: current ?? "Backlog",
+      nextStatus: effectiveStatus,
+      goalMode: data.goalMode === true,
+      proof: args.proof?.map(({ status, label }) => ({ status, label })),
+      occurredAt: new Date().toISOString(),
+    });
+    await db().runTransaction(async (tx) => {
+      const latestTask = await tx.get(taskRef);
+      if (!latestTask.exists) throw new Error("task disappeared during status update");
+      const latest = latestTask.data() as { status?: string; claim?: { token?: string } | null };
+      if (latest.status !== current) throw new Error("task status changed during update");
+      if (claimActive && latest.claim?.token !== args.claimToken) {
+        throw new Error("task claim changed during update");
+      }
+      if (canonicalEvents.length > 0) {
+        await enqueueExecutionEvents(
+          tx,
+          taskRef.parent.parent!,
+          canonicalEvents as [typeof canonicalEvents[number], ...typeof canonicalEvents[number][]],
+        );
+      }
+      tx.update(taskRef, patch);
+    });
 
     // Keep the dispatcher-wide per-agent lease in sync with the task claim.
     // This is what preserves one active task per single-session runtime across
@@ -208,7 +248,6 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
     // Activity feed: narrate the transition in plain language (only on a real
     // status CHANGE — claim-heartbeat updates with the same status are noise).
     if (effectiveStatus !== current) {
-      const actor = data.agent?.trim() || claim?.agent || "Worker";
       const verb =
         effectiveStatus === "Done"
           ? ("completed_task" as const)
