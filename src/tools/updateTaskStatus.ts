@@ -34,6 +34,7 @@ import { logActivity } from "../activityEvents.js";
 import { logDeliveredResult, logTaskPickedUp } from "../coordinationLog.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
+import { claimStillHeld } from "./claimGuard.js";
 import { dispatchStateForStatus, isPlaceholderResult, isTerminalTaskTransition, refreshesClaim } from "./taskStatusPolicy.js";
 import { buildTaskStatusEvents, enqueueExecutionEvents } from "../executionEvents.js";
 
@@ -207,7 +208,12 @@ export const updateTaskStatus: Tool<typeof InputSchema> = {
       if (!latestTask.exists) throw new Error("task disappeared during status update");
       const latest = latestTask.data() as { status?: string; claim?: { token?: string } | null };
       if (latest.status !== current) throw new Error("task status changed during update");
-      if (claimActive && latest.claim?.token !== args.claimToken) {
+      if (!claimStillHeld({
+        claimActive,
+        checkedToken: claim?.token,
+        latestToken: latest.claim?.token,
+        argsToken: args.claimToken,
+      })) {
         throw new Error("task claim changed during update");
       }
       if (canonicalEvents.length > 0) {
