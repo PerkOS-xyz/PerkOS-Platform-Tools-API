@@ -8,6 +8,7 @@
 
 import type { AnyTool } from "./types.js";
 
+import { createStorefront } from "./createStorefront.js";
 import { createTask } from "./createTask.js";
 import { explainPlugin } from "./explainPlugin.js";
 import { getMyAgent } from "./getMyAgent.js";
@@ -47,6 +48,9 @@ export const tools: AnyTool[] = [
   upsertPlanTask as unknown as AnyTool,
   proposePlan as unknown as AnyTool,
   postDocMessage as unknown as AnyTool,
+  // Storefronts — a teammate builds and publishes the owner's business site
+  // on AgentWired, paid in USDC on Solana straight to the owner's wallet.
+  createStorefront as unknown as AnyTool,
 ];
 
 const byName = new Map<string, AnyTool>();

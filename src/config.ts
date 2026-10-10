@@ -71,6 +71,12 @@ const schema = z.object({
   // --- Project chat service ingress ---
   PERKOS_CHAT_INTERNAL_URL: z.string().url().default("http://perkos-chat:6070"),
   CHAT_INTERNAL_API_KEY: z.string().optional(),
+
+  // --- AgentWired storefronts ---
+  // The bearer AgentWired accepts for PerkOS-created stores (its
+  // PERKOS_SERVICE_TOKEN). Without it createStorefront answers UNAVAILABLE.
+  AGENTWIRED_URL: z.string().url().default("https://agentwired.ai"),
+  AGENTWIRED_SERVICE_TOKEN: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

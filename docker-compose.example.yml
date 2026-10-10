@@ -41,6 +41,9 @@ services:
       # PerkOS-Chat service ingress used for project workflow updates.
       PERKOS_CHAT_INTERNAL_URL: ${PERKOS_CHAT_INTERNAL_URL:-http://perkos-chat:6070}
       CHAT_INTERNAL_API_KEY: ${CHAT_INTERNAL_API_KEY}
+      # Storefronts built by agents (createStorefront). Optional.
+      AGENTWIRED_URL: ${AGENTWIRED_URL:-https://agentwired.ai}
+      AGENTWIRED_SERVICE_TOKEN: ${AGENTWIRED_SERVICE_TOKEN:-}
 
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
