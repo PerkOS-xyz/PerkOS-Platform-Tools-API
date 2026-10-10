@@ -26,6 +26,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../firestore.js";
 import { logActivity } from "../activityEvents.js";
 import type { Tool } from "./types.js";
+import { projectAgentAuthorized, projectAccessDenied } from "../projectAuthorization.js";
 
 const InputSchema = z
   .object({
@@ -38,7 +39,7 @@ const InputSchema = z
     prompt: z.string().max(4000).optional(),
     priority: z.enum(["High", "Medium", "Low"]).optional(),
     /** Assign to a worker agent by display name. Optional → unassigned. */
-    agent: z.string().max(64).optional(),
+    agent: z.string().min(1).max(64).optional(),
     /** Task ids in THIS project that must be Done before this dispatches. */
     parents: z
       .array(z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/))
@@ -85,6 +86,10 @@ export const createTask: Tool<typeof InputSchema> = {
         message:
           "This project uses an approval-controlled plan. Draft with planTask blocks during planning; after approval the server materializes the immutable task set. Do not call createTask directly.",
       };
+    }
+
+    if (args.agent && !await projectAgentAuthorized(ctx.wallet, args.projectId, args.agent)) {
+      return projectAccessDenied;
     }
 
     // Validate parents exist in THIS project (prevents typo'd dependency ids

@@ -23,6 +23,7 @@ import {
 } from "./docShared.js";
 import type { Tool } from "./types.js";
 import { planningRunDecision, planningRunError, planningRunIdSchema } from "./planningRun.js";
+import { projectAgentAuthorized, projectAccessDenied } from "../projectAuthorization.js";
 
 const InputSchema = z
   .object({
@@ -35,7 +36,7 @@ const InputSchema = z
     title: z.string().min(1).max(200),
     desc: z.string().max(4000).optional(),
     /** Suggested worker agent by name (humans can override on approval). */
-    suggestedAgent: z.string().max(64).optional(),
+    suggestedAgent: z.string().min(1).max(64).optional(),
     acceptance: z.string().max(2000).optional(),
     /** Other planTask block ids this depends on. */
     deps: z.array(blockIdSchema).max(50).optional(),
@@ -51,6 +52,10 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
     "Create or update a DRAFT task in a doc (a proposal, not a board task — it materializes only when a human approves the plan). As the PM, decompose the goal into draft tasks under a group, with a suggestedAgent and acceptance criteria. Targets the active plan doc unless docId is given. Omit taskId to create; pass it to update.",
   input: InputSchema,
   async run({ args, ctx }) {
+    // ensureDoc can create a document: validate the destination first.
+    if (args.suggestedAgent && !await projectAgentAuthorized(ctx.wallet, args.projectId, args.suggestedAgent)) {
+      return projectAccessDenied;
+    }
     const refs = await ensureDoc(ctx.wallet, args.projectId, {
       docId: args.docId,
     });
@@ -88,21 +93,6 @@ export const upsertPlanTask: Tool<typeof InputSchema> = {
     }
 
     const blocksCol = docRef.collection("blocks");
-
-    if (args.suggestedAgent) {
-      const roster = Array.isArray(projectSnapshot.data()?.agentIds)
-        ? (projectSnapshot.data()?.agentIds as unknown[]).filter(
-            (name): name is string => typeof name === "string" && name.length > 0,
-          )
-        : [];
-      if (!roster.includes(args.suggestedAgent)) {
-        return {
-          ok: false,
-          errorClass: "BAD_INPUT",
-          message: `Unknown suggestedAgent "${args.suggestedAgent}". Use one of the project's exact agent names: ${roster.join(", ") || "(no agents assigned)"}.`,
-        };
-      }
-    }
 
     // The referenced group must exist and be a planGroup.
     const groupSnap = await blocksCol.doc(args.groupId).get();

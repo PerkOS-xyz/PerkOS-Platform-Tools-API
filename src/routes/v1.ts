@@ -18,6 +18,7 @@ import { authMiddleware, requireAdmin } from "../auth/middleware.js";
 import { getMetrics } from "../metrics.js";
 import { check as rateCheck } from "../rate-limit.js";
 import { findTool, tools } from "../tools/index.js";
+import { projectCallerAuthorized, projectAccessDenied } from "../projectAuthorization.js";
 
 export async function registerV1Routes(app: FastifyInstance): Promise<void> {
   // All /v1/* routes require the JWT.
@@ -122,7 +123,9 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
 
       // Dispatch.
       try {
-        const result = await tool.run({ args: parsed.data, ctx });
+        const result = await projectCallerAuthorized(ctx, parsed.data)
+          ? await tool.run({ args: parsed.data, ctx })
+          : projectAccessDenied;
         audit(ctx, {
           tool: name,
           ok: result.ok,
@@ -135,8 +138,8 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
           .code(result.ok ? 200 : statusForError(result.errorClass))
           .send(result);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        req.log.error({ err }, `tool ${name} threw`);
+        // Database/SDK errors can contain document paths or credentials.
+        req.log.error({ errorType: err instanceof Error ? err.name : "Error" }, `tool ${name} failed`);
         audit(ctx, {
           tool: name,
           ok: false,
@@ -147,7 +150,7 @@ export async function registerV1Routes(app: FastifyInstance): Promise<void> {
         observe("internal");
         return reply
           .code(500)
-          .send({ ok: false, errorClass: "INTERNAL", message: msg });
+          .send({ ok: false, errorClass: "INTERNAL", message: "Tool operation failed. Retry later." });
       }
     },
   );
