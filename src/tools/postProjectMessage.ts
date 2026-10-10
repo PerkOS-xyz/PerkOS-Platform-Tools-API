@@ -14,6 +14,7 @@ import { db } from "../firestore.js";
 import { postProjectChat } from "../projectChat.js";
 import type { Tool } from "./types.js";
 import { redactClaimTokens } from "./outputSanitizer.js";
+import { projectAgentAuthorized, projectAccessDenied } from "../projectAuthorization.js";
 
 const InputSchema = z
   .object({
@@ -34,6 +35,7 @@ export const postProjectMessage: Tool<typeof InputSchema> = {
     "Post a message into a project's chat (the calling wallet's project). Use this to notify the PM that a task is complete, ask a question, or broadcast an update to the team. Appears live in the project's Chat tab.",
   input: InputSchema,
   async run({ args, ctx }) {
+    if (!ctx.agent || !await projectAgentAuthorized(ctx.wallet, args.projectId, ctx.agent)) return projectAccessDenied;
     const projectRef = db()
       .collection("wallets")
       .doc(ctx.wallet)
@@ -48,6 +50,9 @@ export const postProjectMessage: Tool<typeof InputSchema> = {
       };
     }
     const projectData = project.data() as Record<string, unknown>;
+    const lead = projectData.pmAgent;
+    if (lead !== undefined && lead !== null && (typeof lead !== "string"
+      || !await projectAgentAuthorized(ctx.wallet, args.projectId, lead, "pm"))) return projectAccessDenied;
     const workflow = (projectData.workflow ?? null) as
       | { phase?: string; convId?: string }
       | null;
@@ -61,14 +66,14 @@ export const postProjectMessage: Tool<typeof InputSchema> = {
       convId:
         workflowConvId ??
         ((projectData.chatConvId as string | undefined) ?? undefined),
-      sender: ctx.convId,
+      sender: `agent:${ctx.agent}`,
       text: redactClaimTokens(args.text),
       targets: Array.from(
         new Set(
           [
             `user:${ctx.wallet}`,
-            projectData.pmAgent
-              ? `agent:${String(projectData.pmAgent)}`
+            lead
+              ? `agent:${lead}`
               : null,
           ].filter((identity): identity is string => Boolean(identity)),
         ),
