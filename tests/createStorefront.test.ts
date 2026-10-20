@@ -22,7 +22,12 @@ const args = {
   name: "Harbor & Pine Coffee",
   vertical: "Food",
   description: "Small-batch coffee for everyday rituals.",
-  items: [{ name: "Espresso Shot", price: 1 }],
+  items: [{
+    name: "Espresso Shot",
+    price: 1,
+    category: "Drinks",
+    imagePrompt: "editorial espresso on a stone counter",
+  }],
   checkoutMode: "test" as const,
 };
 
@@ -43,6 +48,11 @@ describe("createStorefront helpers", () => {
     expect(body.publish).toBe(true);
     expect(body.ownerUserId).toBe(`perkos:${EVM}`);
     expect(body.vertical).toBe("food");
+    expect(body.updateExisting).toBe(true);
+    expect(body.items[0]).toMatchObject({
+      category: "Drinks",
+      imagePrompt: "editorial espresso on a stone counter",
+    });
     expect(body.paymentMethods).toEqual([
       { provider: "crypto", network: "solana", asset: "USDC", recipient: SOLANA, enabled: true },
     ]);

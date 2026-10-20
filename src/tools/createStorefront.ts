@@ -36,6 +36,9 @@ const ItemSchema = z.object({
   name: z.string().trim().min(1).max(120),
   price: z.number().min(0).max(100_000),
   description: z.string().trim().max(400).optional(),
+  category: z.string().trim().max(100).optional(),
+  imagePrompt: z.string().trim().max(160).optional(),
+  imageAsset: z.unknown().optional(),
 });
 
 const InputSchema = z.object({
@@ -60,11 +63,15 @@ export function buildStorefrontRequest(args: Input, wallet: string, recipient: s
       name: item.name,
       price: item.price,
       description: item.description ?? "",
+      category: item.category,
+      imagePrompt: item.imagePrompt,
+      imageAsset: item.imageAsset,
     })),
     paymentMethods: [
       { provider: "crypto", network: "solana", asset: "USDC", recipient, enabled: true },
     ],
     checkoutMode: args.checkoutMode,
+    updateExisting: true,
     publish: true,
   };
 }
@@ -76,6 +83,11 @@ type StoreResponse = {
     storeUrl: string;
     catalogUrl: string;
     tenantId: string;
+    imageCoverage?: {
+      assigned: number;
+      total: number;
+      requiresOwnerReview: boolean;
+    };
   };
   error?: string;
 };
@@ -146,6 +158,7 @@ export const createStorefront: Tool<typeof InputSchema> = {
         payments: args.checkoutMode === "test" ? "USDC checkout in test mode" : "USDC on Solana",
         checkoutMode: args.checkoutMode,
         recipient,
+        imageCoverage: store.imageCoverage,
       },
     };
   },
