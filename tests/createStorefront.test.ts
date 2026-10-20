@@ -23,6 +23,7 @@ const args = {
   vertical: "Food",
   description: "Small-batch coffee for everyday rituals.",
   items: [{ name: "Espresso Shot", price: 1 }],
+  checkoutMode: "test" as const,
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -49,9 +50,20 @@ describe("createStorefront helpers", () => {
 });
 
 describe("createStorefront.run", () => {
-  it("asks for a Solana wallet when the owner signed in with an EVM one", async () => {
-    const result = await createStorefront.run({ args: { ...args, solanaWallet: undefined }, ctx: ctx(EVM) });
+  it("asks for a Solana wallet only when live checkout is requested", async () => {
+    const result = await createStorefront.run({ args: { ...args, checkoutMode: "live", solanaWallet: undefined }, ctx: ctx(EVM) });
     expect(result).toMatchObject({ ok: false, errorClass: "BAD_INPUT" });
+  });
+
+  it("allows test checkout without a payout wallet", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ store: {
+      name: args.name, status: "published", storeUrl: "https://store.test", catalogUrl: "https://store.test/catalog", tenantId: "store-1",
+    } }), { status: 201, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createStorefront.run({ args: { ...args, solanaWallet: undefined }, ctx: ctx(EVM) });
+    expect(result).toMatchObject({ ok: true, data: { checkoutMode: "test", payments: "USDC checkout in test mode" } });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ checkoutMode: "test", paymentMethods: [{ recipient: "" }] });
   });
 
   it("returns the live store link from AgentWired", async () => {
