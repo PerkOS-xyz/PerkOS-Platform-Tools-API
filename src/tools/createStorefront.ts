@@ -1,5 +1,5 @@
 /**
- * createStorefront(name, vertical, description, items, solanaWallet?)
+ * createStorefront(name, vertical, description, items, checkoutMode?, solanaWallet?)
  *   → {name, status, storeUrl, catalogUrl, tenantId, payments, recipient}
  *
  * Builds and publishes an AgentWired storefront for the calling wallet's
@@ -43,6 +43,7 @@ const InputSchema = z.object({
   vertical: z.string().trim().min(2).max(40).default("other"),
   description: z.string().trim().max(1000).default(""),
   items: z.array(ItemSchema).min(1).max(20),
+  checkoutMode: z.enum(["test", "live"]).default("test"),
   solanaWallet: z.string().trim().optional(),
 });
 
@@ -63,6 +64,7 @@ export function buildStorefrontRequest(args: Input, wallet: string, recipient: s
     paymentMethods: [
       { provider: "crypto", network: "solana", asset: "USDC", recipient, enabled: true },
     ],
+    checkoutMode: args.checkoutMode,
     publish: true,
   };
 }
@@ -83,7 +85,7 @@ export const createStorefront: Tool<typeof InputSchema> = {
   kind: "action",
   role: "user",
   description:
-    "Build and publish a storefront website for the owner's business on AgentWired, taking USDC on Solana straight to the owner's wallet. Pass the business name, its type (for example food, retail or services), a short description, the products with prices in USD, and the Solana wallet that receives payments. Returns the live store link to share with the owner.",
+    "Build and publish a storefront website for the owner's business on AgentWired. Start with checkoutMode test so the owner can review the real store and checkout without funds or a payout wallet. Use checkoutMode live only after the owner supplies the Solana wallet that receives USDC. Returns the live store link to share with the owner.",
   input: InputSchema,
   async run({ args, ctx }) {
     const token = config.AGENTWIRED_SERVICE_TOKEN;
@@ -97,9 +99,8 @@ export const createStorefront: Tool<typeof InputSchema> = {
 
     // The wallet in the token is the owner's; it can be the payout address
     // only when it is a Solana one. Otherwise the agent has to ask.
-    const recipient =
-      args.solanaWallet ?? (looksLikeSolanaAddress(ctx.wallet) ? ctx.wallet : null);
-    if (!recipient || !looksLikeSolanaAddress(recipient)) {
+    const recipient = args.solanaWallet ?? (looksLikeSolanaAddress(ctx.wallet) ? ctx.wallet : "");
+    if (args.checkoutMode === "live" && !looksLikeSolanaAddress(recipient)) {
       return {
         ok: false,
         errorClass: "BAD_INPUT",
@@ -142,7 +143,8 @@ export const createStorefront: Tool<typeof InputSchema> = {
         storeUrl: store.storeUrl,
         catalogUrl: store.catalogUrl,
         tenantId: store.tenantId,
-        payments: "USDC on Solana",
+        payments: args.checkoutMode === "test" ? "USDC checkout in test mode" : "USDC on Solana",
+        checkoutMode: args.checkoutMode,
         recipient,
       },
     };
