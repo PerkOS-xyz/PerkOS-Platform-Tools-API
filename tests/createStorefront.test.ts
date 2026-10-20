@@ -12,7 +12,7 @@ process.env.JWT_SHARED_SECRET = "a".repeat(40);
 process.env.AGENTWIRED_URL = "https://agentwired.test";
 process.env.AGENTWIRED_SERVICE_TOKEN = "service-token-for-tests";
 
-const { buildStorefrontRequest, createStorefront, looksLikeSolanaAddress, storefrontExternalId } =
+const { buildStorefrontRequest, createStorefront, looksLikeEvmAddress, looksLikeSolanaAddress, storefrontExternalId } =
   await import("../src/tools/createStorefront.js");
 
 const SOLANA = "BgW3xVRcWuBiGTFAoHdtJuekQNFQfoJ6GuDV9TJqSa1m";
@@ -29,6 +29,7 @@ const args = {
     imagePrompt: "editorial espresso on a stone counter",
   }],
   checkoutMode: "test" as const,
+  paymentNetwork: "base" as const,
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -37,6 +38,8 @@ describe("createStorefront helpers", () => {
   it("recognises Solana addresses and rejects EVM ones", () => {
     expect(looksLikeSolanaAddress(SOLANA)).toBe(true);
     expect(looksLikeSolanaAddress(EVM)).toBe(false);
+    expect(looksLikeEvmAddress(EVM)).toBe(true);
+    expect(looksLikeEvmAddress(SOLANA)).toBe(false);
   });
 
   it("keys the store to the owner and the business name", () => {
@@ -44,7 +47,7 @@ describe("createStorefront helpers", () => {
   });
 
   it("publishes with USDC on Solana to the given wallet", () => {
-    const body = buildStorefrontRequest({ ...args, solanaWallet: undefined }, EVM, SOLANA);
+    const body = buildStorefrontRequest({ ...args, payoutWallet: undefined }, EVM, EVM);
     expect(body.publish).toBe(true);
     expect(body.ownerUserId).toBe(`perkos:${EVM}`);
     expect(body.vertical).toBe("food");
@@ -54,15 +57,18 @@ describe("createStorefront helpers", () => {
       imagePrompt: "editorial espresso on a stone counter",
     });
     expect(body.paymentMethods).toEqual([
-      { provider: "crypto", network: "solana", asset: "USDC", recipient: SOLANA, enabled: true },
+      { provider: "crypto", network: "base", asset: "USDC", recipient: EVM, enabled: true },
     ]);
   });
 });
 
 describe("createStorefront.run", () => {
   it("asks for a Solana wallet only when live checkout is requested", async () => {
-    const result = await createStorefront.run({ args: { ...args, checkoutMode: "live", solanaWallet: undefined }, ctx: ctx(EVM) });
-    expect(result).toMatchObject({ ok: false, errorClass: "BAD_INPUT" });
+    const baseResult = await createStorefront.run({ args: { ...args, checkoutMode: "live", payoutWallet: undefined }, ctx: ctx(SOLANA) });
+    expect(baseResult).toMatchObject({ ok: false, errorClass: "BAD_INPUT" });
+
+    const solanaResult = await createStorefront.run({ args: { ...args, checkoutMode: "live", paymentNetwork: "solana", payoutWallet: undefined }, ctx: ctx(EVM) });
+    expect(solanaResult).toMatchObject({ ok: false, errorClass: "BAD_INPUT" });
   });
 
   it("allows test checkout without a payout wallet", async () => {
@@ -76,7 +82,7 @@ describe("createStorefront.run", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ checkoutMode: "test", paymentMethods: [{ recipient: "" }] });
   });
 
-  it("returns the live store link from AgentWired", async () => {
+  it("returns the published store link from AgentWired", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -95,7 +101,7 @@ describe("createStorefront.run", () => {
     const result = await createStorefront.run({ args: { ...args, solanaWallet: undefined }, ctx: ctx(SOLANA) });
     expect(result).toMatchObject({
       ok: true,
-      data: { status: "published", storeUrl: "https://harbor-pine-coffee-abc123.agentwired.test", recipient: SOLANA },
+      data: { status: "published", storeUrl: "https://harbor-pine-coffee-abc123.agentwired.test", recipient: "" },
     });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://agentwired.test/api/integrations/perkos/stores");
