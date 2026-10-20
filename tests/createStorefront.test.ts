@@ -32,6 +32,12 @@ const args = {
   paymentNetwork: "base" as const,
 };
 
+const taskContext = {
+  projectId: "project-1",
+  taskId: "task-1",
+  claimToken: "claim-token-1234567890",
+};
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("createStorefront helpers", () => {
@@ -106,6 +112,11 @@ describe("createStorefront.run", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://agentwired.test/api/integrations/perkos/stores");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer service-token-for-tests");
+  });
+
+  it("keeps assignment context out of the AgentWired request", () => {
+    const body = buildStorefrontRequest({ ...args, taskContext }, EVM, "");
+    expect(body).not.toHaveProperty("taskContext");
   });
 
   it("passes AgentWired's error back to the agent", async () => {
