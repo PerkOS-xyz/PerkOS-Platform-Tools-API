@@ -1,10 +1,10 @@
 /**
- * createStorefront(name, vertical, description, items, checkoutMode?, solanaWallet?)
+ * createStorefront(name, vertical, description, items, checkoutMode?, paymentNetwork?, payoutWallet?)
  *   → {name, status, storeUrl, catalogUrl, tenantId, payments, recipient}
  *
  * Builds and publishes an AgentWired storefront for the calling wallet's
- * business. Payments are USDC on Solana and go straight to the owner's
- * wallet; PerkOS never holds them. The store is keyed to the wallet and the
+ * business. Live USDC payments go straight to the owner's wallet; PerkOS
+ * never holds them. The store is keyed to the wallet and the
  * business name, so asking twice returns the same store instead of a second
  * one.
  */
@@ -15,9 +15,14 @@ import { config } from "../config.js";
 import type { Tool } from "./types.js";
 
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDRESS = /^0x[a-fA-F0-9]{40}$/;
 
 export function looksLikeSolanaAddress(value: string): boolean {
   return SOLANA_ADDRESS.test(value);
+}
+
+export function looksLikeEvmAddress(value: string): boolean {
+  return EVM_ADDRESS.test(value);
 }
 
 /** Stable per owner and business name, so a retry reuses the same store. */
@@ -47,6 +52,9 @@ const InputSchema = z.object({
   description: z.string().trim().max(1000).default(""),
   items: z.array(ItemSchema).min(1).max(20),
   checkoutMode: z.enum(["test", "live"]).default("test"),
+  paymentNetwork: z.enum(["base", "solana"]).default("base"),
+  payoutWallet: z.string().trim().optional(),
+  /** @deprecated Use payoutWallet with paymentNetwork. */
   solanaWallet: z.string().trim().optional(),
 });
 
@@ -68,7 +76,7 @@ export function buildStorefrontRequest(args: Input, wallet: string, recipient: s
       imageAsset: item.imageAsset,
     })),
     paymentMethods: [
-      { provider: "crypto", network: "solana", asset: "USDC", recipient, enabled: true },
+      { provider: "crypto", network: args.paymentNetwork, asset: "USDC", recipient, enabled: true },
     ],
     checkoutMode: args.checkoutMode,
     updateExisting: true,
@@ -111,13 +119,19 @@ export const createStorefront: Tool<typeof InputSchema> = {
 
     // The wallet in the token is the owner's; it can be the payout address
     // only when it is a Solana one. Otherwise the agent has to ask.
-    const recipient = args.solanaWallet ?? (looksLikeSolanaAddress(ctx.wallet) ? ctx.wallet : "");
-    if (args.checkoutMode === "live" && !looksLikeSolanaAddress(recipient)) {
+    const walletForNetwork = args.checkoutMode !== "live" ? "" : args.paymentNetwork === "solana"
+      ? (looksLikeSolanaAddress(ctx.wallet) ? ctx.wallet : "")
+      : (looksLikeEvmAddress(ctx.wallet) ? ctx.wallet : "");
+    const recipient = args.payoutWallet ?? args.solanaWallet ?? walletForNetwork;
+    const validRecipient = args.paymentNetwork === "solana"
+      ? looksLikeSolanaAddress(recipient)
+      : looksLikeEvmAddress(recipient);
+    if (args.checkoutMode === "live" && !validRecipient) {
       return {
         ok: false,
         errorClass: "BAD_INPUT",
         message:
-          "Ask the owner for the Solana wallet that should receive USDC payments, then call again with solanaWallet.",
+          `Ask the owner for the ${args.paymentNetwork === "solana" ? "Solana" : "EVM"} wallet that should receive USDC payments, then call again with payoutWallet.`,
       };
     }
 
@@ -155,8 +169,9 @@ export const createStorefront: Tool<typeof InputSchema> = {
         storeUrl: store.storeUrl,
         catalogUrl: store.catalogUrl,
         tenantId: store.tenantId,
-        payments: args.checkoutMode === "test" ? "USDC checkout in test mode" : "USDC on Solana",
+        payments: args.checkoutMode === "test" ? "USDC checkout in test mode" : `USDC on ${args.paymentNetwork}`,
         checkoutMode: args.checkoutMode,
+        paymentNetwork: args.paymentNetwork,
         recipient,
         imageCoverage: store.imageCoverage,
       },
