@@ -11,7 +11,11 @@
 
 import { z } from "zod";
 
+import { FieldValue, type Firestore } from "firebase-admin/firestore";
+
+import { logActivity } from "../activityEvents.js";
 import { config } from "../config.js";
+import { db } from "../firestore.js";
 import type { Tool } from "./types.js";
 
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -46,6 +50,14 @@ const ItemSchema = z.object({
   imageAsset: z.unknown().optional(),
 });
 
+const TaskContextSchema = z
+  .object({
+    projectId: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/),
+    taskId: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/),
+    claimToken: z.string().min(16).max(64),
+  })
+  .strict();
+
 const InputSchema = z.object({
   name: z.string().trim().min(2).max(80),
   vertical: z.string().trim().min(2).max(40).default("other"),
@@ -56,6 +68,8 @@ const InputSchema = z.object({
   payoutWallet: z.string().trim().optional(),
   /** @deprecated Use payoutWallet with paymentNetwork. */
   solanaWallet: z.string().trim().optional(),
+  /** Assignment context copied from the PerkOS wake prompt. */
+  taskContext: TaskContextSchema.optional(),
 });
 
 type Input = z.infer<typeof InputSchema>;
@@ -100,12 +114,126 @@ type StoreResponse = {
   error?: string;
 };
 
+type StorefrontTaskReceipt = {
+  tenantId: string;
+  storeUrl: string;
+  catalogUrl: string;
+  checkoutMode: "test" | "live";
+  paymentNetwork: "base" | "solana";
+  imageCoverage?: {
+    assigned: number;
+    total: number;
+    requiresOwnerReview: boolean;
+  };
+};
+
+export type TaskReceiptResult = "applied" | "already-terminal" | "mismatch";
+
+export function storefrontReceiptResult(store: StorefrontTaskReceipt): string {
+  const coverage = store.imageCoverage
+    ? ` Images assigned: ${store.imageCoverage.assigned}/${store.imageCoverage.total}; owner review ${store.imageCoverage.requiresOwnerReview ? "required" : "not required"}.`
+    : "";
+  return `Storefront published: ${store.storeUrl}. Catalog: ${store.catalogUrl}. Checkout: ${store.checkoutMode} mode on ${store.paymentNetwork}.${coverage}`;
+}
+
+/**
+ * Finish the currently claimed task from the durable business-effect receipt.
+ * The three-way task/claim/lease match prevents a direct chat, stale retry, or
+ * reassigned worker from closing unrelated work.
+ */
+export async function reconcileStorefrontTask(
+  input: {
+    wallet: string;
+    agent: string;
+    context: z.infer<typeof TaskContextSchema>;
+    receipt: StorefrontTaskReceipt;
+  },
+  firestore: Firestore = db(),
+): Promise<TaskReceiptResult> {
+  const { wallet, agent, context, receipt } = input;
+  const taskRef = firestore
+    .collection("wallets")
+    .doc(wallet)
+    .collection("projects")
+    .doc(context.projectId)
+    .collection("tasks")
+    .doc(context.taskId);
+  const leaseRef = firestore.collection("agent_dispatch_leases").doc(`${wallet}__${agent}`);
+  let outcome: TaskReceiptResult = "mismatch";
+  let taskName = context.taskId;
+
+  await firestore.runTransaction(async (tx) => {
+    const [taskSnap, leaseSnap] = await Promise.all([tx.get(taskRef), tx.get(leaseRef)]);
+    if (!taskSnap.exists || !leaseSnap.exists) return;
+    const task = taskSnap.data() as Record<string, unknown>;
+    const lease = leaseSnap.data() as Record<string, unknown>;
+    taskName = typeof task.name === "string" ? task.name : taskName;
+    if (task.status === "Done" || task.status === "Review") {
+      outcome = "already-terminal";
+      return;
+    }
+    const claim = (task.claim ?? null) as { token?: unknown } | null;
+    const matches =
+      task.agent === agent &&
+      claim?.token === context.claimToken &&
+      lease.token === context.claimToken &&
+      lease.wallet === wallet &&
+      lease.agent === agent &&
+      lease.projectId === context.projectId &&
+      lease.taskId === context.taskId;
+    if (!matches) return;
+
+    const review = task.goalMode === true;
+    tx.set(
+      taskRef,
+      {
+        status: review ? "Review" : "Done",
+        result: storefrontReceiptResult(receipt),
+        judgePending: review ? true : FieldValue.delete(),
+        claim: FieldValue.delete(),
+        dispatchStuck: FieldValue.delete(),
+        nextDispatchAtMs: FieldValue.delete(),
+        lastDispatchError: FieldValue.delete(),
+        workerProtocol: FieldValue.delete(),
+        dispatchState: review ? "review" : "completed",
+        completionSource: "tool_receipt",
+        operationReceipt: {
+          tool: "createStorefront",
+          tenantId: receipt.tenantId,
+          storeUrl: receipt.storeUrl,
+          checkoutMode: receipt.checkoutMode,
+          recordedAtMs: Date.now(),
+        },
+        lastWorkerUpdateAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    tx.delete(leaseRef);
+    outcome = "applied";
+  });
+
+  if ((outcome as TaskReceiptResult) === "applied") {
+    logActivity(wallet, {
+      actorType: "agent",
+      actor: agent,
+      verb: "completed_task",
+      object: taskName,
+      objectType: "task",
+      projectId: context.projectId,
+      taskId: context.taskId,
+      detail: "verified by createStorefront receipt",
+    });
+  }
+  return outcome;
+}
+
 export const createStorefront: Tool<typeof InputSchema> = {
   name: "createStorefront",
   kind: "action",
   role: "user",
   description:
-    "Build and publish a storefront website for the owner's business on AgentWired. Start with checkoutMode test so the owner can review the real store and checkout without funds or a payout wallet. Use checkoutMode live only after the owner supplies the Solana wallet that receives USDC. Returns the live store link to share with the owner.",
+    "Build and publish a storefront website for the owner's business on AgentWired. Start with checkoutMode test so the owner can review the real store and checkout without funds or a payout wallet. When working an assigned PerkOS task, copy projectId, taskId, and claimToken from the assignment into taskContext so the verified store receipt completes the task even if the runtime reply is lost. Returns the live store link to share with the owner.",
   input: InputSchema,
   async run({ args, ctx }) {
     const token = config.AGENTWIRED_SERVICE_TOKEN;
@@ -161,6 +289,28 @@ export const createStorefront: Tool<typeof InputSchema> = {
     }
 
     const store = data.store;
+    let taskReconciliation: TaskReceiptResult | "not-requested" | "deferred" = "not-requested";
+    if (args.taskContext) {
+      try {
+        taskReconciliation = await reconcileStorefrontTask({
+          wallet: ctx.wallet,
+          agent: ctx.agent?.trim() || ctx.convId,
+          context: args.taskContext,
+          receipt: {
+            tenantId: store.tenantId,
+            storeUrl: store.storeUrl,
+            catalogUrl: store.catalogUrl,
+            checkoutMode: args.checkoutMode,
+            paymentNetwork: args.paymentNetwork,
+            imageCoverage: store.imageCoverage,
+          },
+        });
+      } catch {
+        // The business effect succeeded, so never return a failure that would
+        // encourage another publish. The agent can still call updateTaskStatus.
+        taskReconciliation = "deferred";
+      }
+    }
     return {
       ok: true,
       data: {
@@ -174,6 +324,7 @@ export const createStorefront: Tool<typeof InputSchema> = {
         paymentNetwork: args.paymentNetwork,
         recipient,
         imageCoverage: store.imageCoverage,
+        taskReconciliation,
       },
     };
   },
