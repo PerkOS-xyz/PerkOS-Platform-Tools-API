@@ -44,7 +44,7 @@ export function storefrontExternalId(wallet: string, name: string): string {
 const ItemSchema = z.object({
   name: z.string().trim().min(1).max(120),
   price: z.number().min(0).max(100_000),
-  description: z.string().trim().max(400).optional(),
+  description: z.string().trim().min(20).max(400),
   category: z.string().trim().max(100).optional(),
   imagePrompt: z.string().trim().max(160).optional(),
   imageAsset: z.unknown().optional(),
@@ -64,7 +64,7 @@ const InputSchema = z.object({
   description: z.string().trim().max(1000).default(""),
   items: z.array(ItemSchema).min(1).max(20),
   checkoutMode: z.enum(["test", "live"]).default("test"),
-  paymentNetwork: z.enum(["base", "solana"]).default("base"),
+  paymentNetwork: z.enum(["base", "solana"]).optional(),
   payoutWallet: z.string().trim().optional(),
   /** @deprecated Use payoutWallet with paymentNetwork. */
   solanaWallet: z.string().trim().optional(),
@@ -74,7 +74,12 @@ const InputSchema = z.object({
 
 type Input = z.infer<typeof InputSchema>;
 
+export function resolvePaymentNetwork(input: Pick<Input, "paymentNetwork">, wallet: string): "base" | "solana" {
+  return input.paymentNetwork ?? (looksLikeSolanaAddress(wallet) ? "solana" : "base");
+}
+
 export function buildStorefrontRequest(args: Input, wallet: string, recipient: string) {
+  const paymentNetwork = resolvePaymentNetwork(args, wallet);
   return {
     externalId: storefrontExternalId(wallet, args.name),
     ownerUserId: `perkos:${wallet}`,
@@ -90,7 +95,7 @@ export function buildStorefrontRequest(args: Input, wallet: string, recipient: s
       imageAsset: item.imageAsset,
     })),
     paymentMethods: [
-      { provider: "crypto", network: args.paymentNetwork, asset: "USDC", recipient, enabled: true },
+      { provider: "crypto", network: paymentNetwork, asset: "USDC", recipient, enabled: true },
     ],
     checkoutMode: args.checkoutMode,
     updateExisting: true,
@@ -247,11 +252,12 @@ export const createStorefront: Tool<typeof InputSchema> = {
 
     // The wallet in the token is the owner's; it can be the payout address
     // only when it is a Solana one. Otherwise the agent has to ask.
-    const walletForNetwork = args.checkoutMode !== "live" ? "" : args.paymentNetwork === "solana"
+    const paymentNetwork = resolvePaymentNetwork(args, ctx.wallet);
+    const walletForNetwork = args.checkoutMode !== "live" ? "" : paymentNetwork === "solana"
       ? (looksLikeSolanaAddress(ctx.wallet) ? ctx.wallet : "")
       : (looksLikeEvmAddress(ctx.wallet) ? ctx.wallet : "");
     const recipient = args.payoutWallet ?? args.solanaWallet ?? walletForNetwork;
-    const validRecipient = args.paymentNetwork === "solana"
+    const validRecipient = paymentNetwork === "solana"
       ? looksLikeSolanaAddress(recipient)
       : looksLikeEvmAddress(recipient);
     if (args.checkoutMode === "live" && !validRecipient) {
@@ -259,7 +265,7 @@ export const createStorefront: Tool<typeof InputSchema> = {
         ok: false,
         errorClass: "BAD_INPUT",
         message:
-          `Ask the owner for the ${args.paymentNetwork === "solana" ? "Solana" : "EVM"} wallet that should receive USDC payments, then call again with payoutWallet.`,
+          `Ask the owner for the ${paymentNetwork === "solana" ? "Solana" : "EVM"} wallet that should receive USDC payments, then call again with payoutWallet.`,
       };
     }
 
@@ -301,7 +307,7 @@ export const createStorefront: Tool<typeof InputSchema> = {
             storeUrl: store.storeUrl,
             catalogUrl: store.catalogUrl,
             checkoutMode: args.checkoutMode,
-            paymentNetwork: args.paymentNetwork,
+            paymentNetwork,
             imageCoverage: store.imageCoverage,
           },
         });
@@ -319,9 +325,9 @@ export const createStorefront: Tool<typeof InputSchema> = {
         storeUrl: store.storeUrl,
         catalogUrl: store.catalogUrl,
         tenantId: store.tenantId,
-        payments: args.checkoutMode === "test" ? "USDC checkout in test mode" : `USDC on ${args.paymentNetwork}`,
+        payments: args.checkoutMode === "test" ? "USDC checkout in test mode" : `USDC on ${paymentNetwork}`,
         checkoutMode: args.checkoutMode,
-        paymentNetwork: args.paymentNetwork,
+        paymentNetwork,
         recipient,
         imageCoverage: store.imageCoverage,
         taskReconciliation,

@@ -12,7 +12,7 @@ process.env.JWT_SHARED_SECRET = "a".repeat(40);
 process.env.AGENTWIRED_URL = "https://agentwired.test";
 process.env.AGENTWIRED_SERVICE_TOKEN = "service-token-for-tests";
 
-const { buildStorefrontRequest, createStorefront, looksLikeEvmAddress, looksLikeSolanaAddress, storefrontExternalId } =
+const { buildStorefrontRequest, createStorefront, looksLikeEvmAddress, looksLikeSolanaAddress, resolvePaymentNetwork, storefrontExternalId } =
   await import("../src/tools/createStorefront.js");
 
 const SOLANA = "BgW3xVRcWuBiGTFAoHdtJuekQNFQfoJ6GuDV9TJqSa1m";
@@ -25,6 +25,7 @@ const args = {
   items: [{
     name: "Espresso Shot",
     price: 1,
+    description: "A concentrated espresso with a clean caramel finish.",
     category: "Drinks",
     imagePrompt: "editorial espresso on a stone counter",
   }],
@@ -50,6 +51,12 @@ describe("createStorefront helpers", () => {
 
   it("keys the store to the owner and the business name", () => {
     expect(storefrontExternalId(SOLANA, "Harbor & Pine Coffee")).toBe(`perkos:${SOLANA}:harbor-pine-coffee`);
+  });
+
+  it("defaults checkout to the connected wallet family", () => {
+    expect(resolvePaymentNetwork({ paymentNetwork: undefined }, SOLANA)).toBe("solana");
+    expect(resolvePaymentNetwork({ paymentNetwork: undefined }, EVM)).toBe("base");
+    expect(resolvePaymentNetwork({ paymentNetwork: "base" }, SOLANA)).toBe("base");
   });
 
   it("publishes with USDC on Solana to the given wallet", () => {
@@ -86,6 +93,17 @@ describe("createStorefront.run", () => {
     expect(result).toMatchObject({ ok: true, data: { checkoutMode: "test", payments: "USDC checkout in test mode" } });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({ checkoutMode: "test", paymentMethods: [{ recipient: "" }] });
+  });
+
+  it("uses Solana test checkout by default for a Solana owner", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ store: {
+      name: args.name, status: "published", storeUrl: "https://store.test", catalogUrl: "https://store.test/catalog", tenantId: "store-1",
+    } }), { status: 201, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createStorefront.run({ args: { ...args, paymentNetwork: undefined }, ctx: ctx(SOLANA) });
+    expect(result).toMatchObject({ ok: true, data: { paymentNetwork: "solana" } });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ paymentMethods: [{ network: "solana", asset: "USDC" }] });
   });
 
   it("returns the published store link from AgentWired", async () => {
