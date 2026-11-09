@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ExecutionEventV1Schema, type ExecutionEventV1 } from "@perkos/shared-types";
+import { ExecutionEventV1Schema, normalizeWalletAddress, type ExecutionEventV1 } from "@perkos/shared-types";
 import { FieldValue, type DocumentReference, type Transaction } from "firebase-admin/firestore";
 
 import { db } from "./firestore.js";
@@ -91,7 +91,7 @@ export async function enqueueExecutionEvents(
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
   created.forEach(({ event, ref }) => tx.create(ref, {
-    event, wallet: event.wallet.toLowerCase(), projectId: event.projectId, runId: event.runId,
+    event, wallet: normalizeWalletAddress(event.wallet), projectId: event.projectId, runId: event.runId,
     state: "pending", attempts: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
   }));
 }
